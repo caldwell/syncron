@@ -1,0 +1,118 @@
+$primary: #32957E;
+$info: #5b4cae;
+$success: #48ab61;
+$warning: #c59b29;
+$danger: #f44336;
+
+$light: rgb(182, 185, 180);
+$dark: #221c41;
+
+@import "../node_modules/bootstrap/scss/bootstrap";
+
+body {
+    color: $dark;
+    background-color: $light;
+    @include color-scheme(dark) {
+        background-color: $dark;
+        color: $light;
+    }
+}
+
+nav.navbar {
+    background-color: $primary;
+    color: color-contrast($primary);
+}
+
+.refresh {
+    @extend .btn;
+    @extend .btn-outline-secondary;
+    @extend .ms-3;
+}
+
+.jobs {
+    @extend .table;
+    @extend .table-sm;
+
+    .icon {
+        width: 32px;
+    }
+
+    tbody {@extend .table-group-divider;}
+
+    .Success {@extend .table-success;}
+    .Failure {@extend .table-danger;}
+    .Running {@extend .table-info;}
+
+    button { @extend .btn;}
+    button.Success {@extend .btn-success;}
+    button.Failure {@extend .btn-danger;}
+    button.Running {@extend .btn-info; color: color-contrast($info); }
+
+    .Running .progress-bar {@extend .bg-info;}
+    .progress-bar.indeterminate {
+        @extend .progress-bar-striped;
+        @extend .progress-bar-animated;
+    }
+    .eta, .status-deets {
+        font-size: small;
+    }
+    tr {
+        vertical-align:middle;
+    }
+}
+
+#log-view {
+    table { @extend .table; @extend .table-sm; }
+    pre {
+        overflow: unset;
+        word-break: break-all;
+        white-space: pre-wrap;
+        margin-bottom: 0;
+    }
+
+    .env table { @extend .table-bordered; }
+
+    .env.hide table {
+        display: none;
+    }
+
+    .env.hide h2::after {content: var(--disclosure-closed);}
+    .env.show h2::after {content: var(--disclosure-opened);}
+    .env h2::after {
+        padding-left: .3rem;
+    }
+
+    h2 {
+        font-size: initial;
+        display: inline;
+        padding-right: .3rem;
+    }
+}
+
+.hidden {
+    display: none;
+}
+
+.container > .card {
+    @extend .my-3;
+    color: $dark;
+}
+
+.breadcrumb {
+    --bs-breadcrumb-margin-bottom: 0;
+}
+.breadcrumb a, .breadcrumb-item.active {
+    color: white;
+}
+nav {
+    --bs-breadcrumb-divider: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><path d='M2.5 0L1 1.5 3.5 4 1 6.5 2.5 8l4-4-4-4z' fill='%23ffffff'/></svg>");
+}
+
+:root {
+    --bs-code-color: $dark;
+    --disclosure-closed:  url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='currentColor' class='bi bi-caret-right-fill' viewBox='0 0 16 16'><path d='m12.14 8.753-5.482 4.796c-.646.566-1.658.106-1.658-.753V3.204a1 1 0 0 1 1.659-.753l5.48 4.796a1 1 0 0 1 0 1.506z'/></svg>");
+    --disclosure-opened: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='currentColor' class='bi bi-caret-down-fill' viewBox='0 0 16 16'><path d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/></svg>");
+}
+
+$dot-color: $dark;
+@import "dot-flashing.scss";
