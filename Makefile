@@ -1,4 +1,4 @@
-all: static syncron
+all: web syncron
 
 syncron: target/debug/syncron
 
@@ -10,21 +10,21 @@ target/debug/%: *.rs
 target/release/%: *.rs
 	cargo build --release
 
-static: static/lib/jsml-react.js static/lib/jsml-react-bundle.js static/syncron.css
-.PHONY: static
+web: web/lib/jsml-react.js web/lib/jsml-react-bundle.js web/syncron.css
+.PHONY: web
 
 %.css: %.scss
 	./node_modules/.bin/sass $< > $@
 
-static/lib:
-	mkdir -p static/lib
+web/lib:
+	mkdir -p web/lib
 
-static/lib/jsml-react.js: node_modules/@caldwell/jsml/jsml-react.mjs static/lib
+web/lib/jsml-react.js: node_modules/@caldwell/jsml/jsml-react.mjs web/lib
 	@test -e $@ || ln -s ../../$< $@
 
-static/lib/jsml-react-bundle.js: node_modules package.json static/lib Makefile
+web/lib/jsml-react-bundle.js: node_modules package.json web/lib Makefile
 	echo "let require;" > $@.temp
-	./node_modules/.bin/browserify -t babelify  -r './static/lib/jsml-react.js:jsml-react' -r 'react/cjs/react.production.min.js:react' -r 'react-dom/cjs/react-dom.production.min.js:react-dom' >> $@.temp
+	./node_modules/.bin/browserify -t babelify  -r './web/lib/jsml-react.js:jsml-react' -r 'react/cjs/react.production.min.js:react' -r 'react-dom/cjs/react-dom.production.min.js:react-dom' >> $@.temp
 	echo "export let React = require('react'), ReactDOM = require('react-dom'), jsr = require('jsml-react').jsr;" >> $@.temp
 	mv $@.temp $@
 

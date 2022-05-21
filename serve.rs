@@ -30,12 +30,12 @@ type WebResult<T, E = Debug<Box<dyn Error>>> = std::result::Result<T, E>; // Wha
 
 #[get("/")]
 async fn index() -> Option<NamedFile> {
-    NamedFile::open(Path::new("static/index.html")).await.ok()
+    NamedFile::open(Path::new("web/index.html")).await.ok()
 }
 
 #[get("/<file..>")]
 async fn files(file: PathBuf) -> Option<NamedFile> {
-    NamedFile::open(Path::new("static/").join(file)).await.ok()
+    NamedFile::open(Path::new("web/").join(file)).await.ok()
 }
 
 #[get("/docs")]
@@ -262,7 +262,7 @@ pub async fn serve(port: u16, db_path: PathBuf) -> Result<(), Box<dyn std::error
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"))
         .merge(("db_path", db_path))
-        .merge(("template_dir", "static"));
+        .merge(("template_dir", "web"));
     let _rocket = rocket::custom(figment)
         .mount("/", routes![index, files, docs_index, docs,
                             run_create, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run])

@@ -1,5 +1,5 @@
 db
 node_modules
 target
-static/lib
-static/syncron.css
+web/lib
+web/syncron.css
