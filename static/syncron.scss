@@ -101,7 +101,7 @@ nav.navbar {
 .breadcrumb {
     --bs-breadcrumb-margin-bottom: 0;
 }
-.breadcrumb a, .breadcrumb-item.active {
+.breadcrumb a, .breadcrumb-item.active, nav.navbar a {
     color: white;
 }
 nav {

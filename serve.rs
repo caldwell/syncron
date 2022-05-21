@@ -4,10 +4,11 @@ use std::error::Error;
 use std::path::{Path,PathBuf};
 
 use rocket::fs::NamedFile;
-use rocket::response::Debug;
+use rocket::response::{Debug,Redirect};
 use rocket::serde::{Serialize, Deserialize, json::Json};
 use rocket::State;
 use rocket::fairing::AdHoc;
+use rocket_dyn_templates::{Template,context};
 
 use crate::job::{ServerJob,ServerRun};
 use crate::db::Db;
@@ -35,6 +36,50 @@ async fn index() -> Option<NamedFile> {
 #[get("/<file..>")]
 async fn files(file: PathBuf) -> Option<NamedFile> {
     NamedFile::open(Path::new("static/").join(file)).await.ok()
+}
+
+#[get("/docs")]
+async fn docs_index() -> Redirect {
+    Redirect::to(uri!(docs("intro")))
+}
+
+fn utf8_or_bust(bytes: Vec<u8>, origin: &str) -> String {
+    String::from_utf8(bytes).or_else::<(),_>(|e| Ok(format!("# UTF-8 error in {}: {}", origin, e))).unwrap()
+}
+
+#[get("/docs/<file..>")]
+async fn docs(file: PathBuf) -> Option<Template> {
+    let contents = std::fs::read(Path::new("docs").join("index.md")).ok();
+    std::fs::read(Path::new("docs").join(file.with_extension("md"))).ok()
+                                   .map(|md| {
+                                       use comrak::{parse_document,format_html,markdown_to_html,Arena,ComrakOptions};
+                                       let mut options = ComrakOptions::default();
+                                       options.extension.header_ids = Some("".to_string());
+
+                                       let arena = Arena::new();
+                                       let root = parse_document(&arena, &utf8_or_bust(md, &file.to_string_lossy()), &options);
+
+                                       // If the first node is an <h1>, then pull it off and set it to the title so the template can render it nicer.
+                                       let mut title = vec![];
+                                       let h1 = root.first_child().expect("h1");
+                                       if let comrak::nodes::NodeValue::Heading(comrak::nodes::NodeHeading{level:1, setext:_}) = h1.data.borrow().value {
+                                           h1.detach();
+                                           if let Err(e) = format_html(&h1, &options, &mut title) {
+                                               title = format!("Error rendering markdown ast of '{}' into title: {}", file.display(), e).as_bytes().to_vec();
+                                           }
+                                       }
+                                       let mut html = vec![];
+                                       if let Err(e) = format_html(&root, &options, &mut html) {
+                                           html = format!("Error rendering markdown ast of '{}' into html: {}", file.display(), e).as_bytes().to_vec();
+                                       }
+
+                                       Template::render("docs", context! {
+                                           title: utf8_or_bust(title, &file.to_string_lossy()),
+                                           content: utf8_or_bust(html, &file.to_string_lossy()),
+                                           contents: markdown_to_html(&utf8_or_bust(contents.unwrap_or("No contents file???".into()), "docs/index.md"),
+                                                                              &ComrakOptions::default()),
+                                       })
+                                   })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -216,9 +261,12 @@ pub async fn serve(port: u16, db_path: PathBuf) -> Result<(), Box<dyn std::error
         .merge(("port", port))
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"))
-        .merge(("db_path", db_path));
+        .merge(("db_path", db_path))
+        .merge(("template_dir", "static"));
     let _rocket = rocket::custom(figment)
-        .mount("/", routes![index, files, run_create, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run])
+        .mount("/", routes![index, files, docs_index, docs,
+                            run_create, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run])
+        .attach(Template::fairing())
         .attach(AdHoc::config::<Config>())
         .launch().await?;
     Ok(())

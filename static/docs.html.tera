@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Syncron</title>
+    <link href="/syncron.css" rel="stylesheet">
+    <style>
+pre {
+  border: 1px solid #eeeeee;
+  background-color: #eee;
+  border-radius: .5rem;
+  margin: ;
+  padding: .3rem;
+}
+
+p > code {
+  border-radius: .3rem;
+  background-color: #eee;
+  padding: .28em .5em .15em;
+}
+    </style>
+  </head>
+  <body>
+    <nav class="navbar bg-gradient navbar-expand-sm">
+      <div class="container-fluid">
+        <span class="navbar-brand mb-0 h1">Syncron</span>
+        <!-- hack! copied from web innspector -->
+        <div class="collapse navbar-collapse" id="nav"><nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/">Jobs</a></li></ol></nav></div>
+        <div class="d-flex"><a href="/docs">Help</a></div>
+      </div>
+    </nav>
+
+    <div class="d-flex">
+      <aside class="p-2 flex-shrink-1">
+        <div class="container">
+          <div class="card">
+            <div class="card-header">
+              Contents
+            </div>
+            <div class="card-body">
+              {{ contents | safe }}
+            </div>
+          </div>
+        </div>
+      </aside>
+      <main class="p-2 w-100">
+        <div class="container">
+          <div class="card">
+            <div class="card-header">
+              {{ title | safe }}
+            </div>
+            <div class="card-body">
+              {{ content | safe }}
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
