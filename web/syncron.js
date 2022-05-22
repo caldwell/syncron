@@ -188,7 +188,7 @@ function jobs_table(props) {
                              ["td", localiso(job.latest_run.date) ],
                              ["td", [run_status, {run:job.latest_run} ]],
                              ["td", { className: "logs-button" },
-                              ["button", { type: "button", className: status+(!job.latest_run.log_len > 0 ? " disabled" : ""),
+                              ["button", { type: "button", className: status+(job.latest_run.log_len == 0 && status != "Running" ? " disabled" : ""),
                                            onClick: prevent_default(() => { window.show_log(job.latest_run.url, job, job.latest_run.id) }) },
                                status == "Running" ? "Tail Log" : "Last Log", ]]];
                  }),
