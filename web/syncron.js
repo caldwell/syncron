@@ -167,29 +167,29 @@ function jobs_view({jobs_url}) {
     }, [jobs_url]);
     return jobs == null ? jsr(["div", { className: "loading" }, "Loading..."])
                         : jsr(card("Jobs",
-            ["table", { className: "jobs" },
-                ["thead",
-                 ["tr",
-                  ["th", { scope: "col", className: "icon" } ],
-                  ["th", { scope: "col", className: "user" }, "User"],
-                  ["th", { scope: "col", className: "name" }, "Name"],
-                  ["th", { scope: "col", className: "name" }, "Last Run Date"],
-                  ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
-                ["tbody",
-                 jobs.map((job) => {
-                     let status = status_state(job.latest_run.status);
-                     return ["tr", { key: job.user+job.id, className: status },
-                             ["td", svg[status] ],
-                             ["td", job.user ],
-                             ["td", ["a", { href: "#", onClick: prevent_default(() => window.show_runs(job.runs_url, job)) }, job.name ]],
-                             ["td", localiso(job.latest_run.date) ],
-                             ["td", [run_status, {run:job.latest_run} ]],
-                             ["td", { className: "logs-button" },
-                              ["button", { type: "button", className: status+(job.latest_run.log_len == 0 && status != "Running" ? " disabled" : ""),
-                                           onClick: prevent_default(() => { window.show_log(job.latest_run.url, job, job.latest_run.id) }) },
-                               status == "Running" ? "Tail Log" : "Last Log", ]]];
-                 }),
-                ]]));
+                                   ["table", { className: "jobs" },
+                                    ["thead",
+                                     ["tr",
+                                      ["th", { scope: "col", className: "icon" } ],
+                                      ["th", { scope: "col", className: "user" }, "User"],
+                                      ["th", { scope: "col", className: "name" }, "Name"],
+                                      ["th", { scope: "col", className: "name" }, "Last Run Date"],
+                                      ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
+                                    ["tbody",
+                                     jobs.map((job) => {
+                                         let status = status_state(job.latest_run.status);
+                                         return ["tr", { key: job.user+job.id, className: status },
+                                                 ["td", svg[status] ],
+                                                 ["td", job.user ],
+                                                 ["td", ["a", { href: "#", onClick: prevent_default(() => window.show_runs(job.runs_url, job)) }, job.name ]],
+                                                 ["td", localiso(job.latest_run.date) ],
+                                                 ["td", [run_status, {run:job.latest_run} ]],
+                                                 ["td", { className: "logs-button" },
+                                                  ["button", { type: "button", className: status+(job.latest_run.log_len == 0 && status != "Running" ? " disabled" : ""),
+                                                               onClick: prevent_default(() => { window.show_log(job.latest_run.url, job, job.latest_run.id) }) },
+                                                   status == "Running" ? "Tail Log" : "Last Log", ]]];
+                                     }),
+                                    ]]));
 }
 
 function runs_view({runs_url, job}) {
@@ -205,25 +205,25 @@ function runs_view({runs_url, job}) {
     }, [runs_url]);
     return runs == null ? jsr(["div", { className: "loading" }, "Loading..."])
                         : jsr(card(`${job.user} / ${job.name}`,
-               ["table", { className: "jobs" },
-                ["thead",
-                 ["tr",
-                  ["th", { scope: "col", className: "icon" } ],
-                  ["th", { scope: "col", className: "date" }, "Date"],
-                  ["th", { scope: "col", className: "size" }, "Log Size"],
-                  ["th", { scope: "col", className: "status" }, "Status"]]],
-                ["tbody",
-                 runs.sort((a,b) => b.date - a.date).map((run) => {
-                     let status = status_state(run.status);
-                     let show_log = () => { window.show_log(run.url, job, run.id) };
-                     return ["tr", { key: job.user+job.id+run.id, className: status },
-                             ["td", svg[status] ],
-                             ["td", ["a", { href: "#", onClick: prevent_default(show_log) }, run.id ]],
-                             ["td", human_bytes(run.log_len)],
-                             ["td", [run_status, {run:run} ]],
-                            ];
-                 }),
-                ]]));
+                                   ["table", { className: "jobs" },
+                                    ["thead",
+                                     ["tr",
+                                      ["th", { scope: "col", className: "icon" } ],
+                                      ["th", { scope: "col", className: "date" }, "Date"],
+                                      ["th", { scope: "col", className: "size" }, "Log Size"],
+                                      ["th", { scope: "col", className: "status" }, "Status"]]],
+                                    ["tbody",
+                                     runs.sort((a,b) => b.date - a.date).map((run) => {
+                                         let status = status_state(run.status);
+                                         let show_log = () => { window.show_log(run.url, job, run.id) };
+                                         return ["tr", { key: job.user+job.id+run.id, className: status },
+                                                 ["td", svg[status] ],
+                                                 ["td", ["a", { href: "#", onClick: prevent_default(show_log) }, run.id ]],
+                                                 ["td", human_bytes(run.log_len)],
+                                                 ["td", [run_status, {run:run} ]],
+                                                ];
+                                     }),
+                                    ]]));
 }
 
 function log_view({run_url, job}) {
@@ -250,12 +250,12 @@ function log_view({run_url, job}) {
 
     let status = status_state(run.status);
     return jsr(card([React.Fragment, svg[status_state(run.status)], ` ${job.user} / ${job.name} on ${localiso(run.date)}`],
-               [["h2", "Command:"], ["code", run.cmd],
-                ["div", { className: `env ${show_env ? "show" : "hide"}` },
-                 ["h2", { onClick: prevent_default(() => set_show_env(!show_env)) }, "Environment:"],
-                 ["table",
-                  ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
-                ["h2", "Output:"],
-                ["pre", run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing"}] : human_status(run.status)]
-               ]));
+                    [["h2", "Command:"], ["code", run.cmd],
+                     ["div", { className: `env ${show_env ? "show" : "hide"}` },
+                      ["h2", { onClick: prevent_default(() => set_show_env(!show_env)) }, "Environment:"],
+                      ["table",
+                       ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
+                     ["h2", "Output:"],
+                     ["pre", run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing"}] : human_status(run.status)]
+                    ]));
 }
