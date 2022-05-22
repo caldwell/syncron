@@ -2,79 +2,56 @@
 import { React, ReactDOM, jsr } from "./lib/jsml-react-bundle.js"
 
 function main() {
-    let [nav_el, jobs_view, runs_view, log_view] = ["nav", "jobs-view", "runs-view", "log-view"].map(id => document.getElementById(id));
+    let [nav_el, app_view] = ["nav", "app-view"].map(id => document.getElementById(id));
 
-    const render_nav = (...crumbs) => {
-        ReactDOM.render(jsr(["nav", { "aria-label": "breadcrumb" },
-                             ["ol", { className: "breadcrumb" },
-                              crumbs.map((crumb) =>
-                                  crumb.click ? ["li", { className: "breadcrumb-item" },        ["a", { href:"#", onClick:prevent_default(crumb.click) }, crumb.id]]
-                                              : ["li", { className: "breadcrumb-item active" },                                                           crumb.id]),
-                             ]]),
-                        nav_el);
-    }
-
-    const show = (div) => {
-        if (window.log_refresher)
-            clearTimeout(window.log_refresher);
-        jobs_view.classList.add("hidden");
-        log_view.classList.add("hidden");
-        runs_view.classList.add("hidden");
-        div.classList.remove("hidden");
-    };
-
-    const show_jobs = (push_state) => {
-        if (push_state == null || push_state)
-            (push_state == "replace_state" ? history.replaceState : history.pushState).call(history, {show_jobs:[false]}, "", `#`);
-        render_nav({ id:"Jobs" });
-        show(jobs_view);
-        refresh_jobs(jobs_view);
-    };
-    window.show_jobs = show_jobs;
-
-    // Gross, how do I talk back up to the "top"?
-    window.show_runs = (runs_url, job, push_state) => {
-        if (push_state == null || push_state)
-            history.pushState({show_runs: [runs_url, job, false]}, "", `#${job.user}/${job.name}`);
-        render_nav({ id:"Jobs",   click:show_jobs },
-                   { id:job.user, click:() =>{} },
-                   { id:job.name });
-        show(runs_view);
-        refresh_runs(runs_view, runs_url, job);
-    };
-
-    window.show_log = (run_url, job, run_id, push_state) => {
-        if (push_state == null || push_state)
-            history.pushState({show_log: [run_url, job, run_id, false]}, "", `#${job.user}/${job.name}/${run_id}`);
-        render_nav({ id:"Jobs",   click:show_jobs },
-                   { id:job.user, click:() =>{} },
-                   { id:job.name, click:() => window.show_runs(job.runs_url, job) },
-                   { id:run_id });
-        show(log_view);
-        refresh_log(log_view, run_url, job);
-    };
-
-    show_jobs("replace_state");
-
-    window.onpopstate = (event) => {
-        if (!event.state) { return /* ??? */ }
-        if ('show_jobs' in event.state) return show_jobs.apply(this, event.state.show_jobs);
-        if ('show_runs' in event.state) return show_runs.apply(this, event.state.show_runs);
-        if ('show_log'  in event.state) return show_log .apply(this, event.state.show_log);
-    };
+    ReactDOM.render(jsr([app, { nav_el: nav_el }]), app_view);
 }
 window.onload = main;
 
-async function refresh_jobs(jobs_div) {
-    ReactDOM.render(jsr([jobs_view, { jobs_url: "/jobs" }]), jobs_div);
+function app({nav_el}) {
+    let [view, set_view] = React.useState({view: "jobs"});
+
+    const push_view = (view) => {
+        history.pushState(view, "", view.view == "jobs" ? '' :
+                                    view.view == "runs" ? `#${view.job.user}/${view.job.name}` :
+                                    view.view == "log"  ? `#${view.job.user}/${view.job.name}/${view.run_id}` : '#cant-happen');
+        set_view(view);
+    }
+
+    React.useEffect(() => {
+        let old_onpopstate = window.onpopstate;
+        window.onpopstate = (event) => {
+            set_view(event.state || {view: "jobs"});
+        };
+
+        () => window.onpopstate = old_onpopstate
+    });
+
+    let crumbs = view.view == "jobs" ? [{ id:"Jobs" }] :
+                 view.view == "runs" ? [{ id:"Jobs",        click:() => push_view({ view:"jobs" }) },
+                                        { id:view.job.user, click:() => {} },
+                                        { id:view.job.name }] :
+                 view.view == "log"  ? [{ id:"Jobs",        click:() => push_view({ view:"jobs" }) },
+                                        { id:view.job.user, click:() =>{} },
+                                        { id:view.job.name, click:() => push_view({ view:"runs", runs_url:view.job.runs_url, job:view.job }) },
+                                        { id:view.run_id }]
+                                     : [{ id: "can't happen" }];
+    return jsr([React.Fragment,
+                [nav, { el: nav_el },
+                 ["nav", { "aria-label": "breadcrumb" },
+                  ["ol", { className: "breadcrumb" },
+                   crumbs.map((crumb) =>
+                       crumb.click ? ["li", { className: "breadcrumb-item" },        ["a", { href:"#", onClick:prevent_default(crumb.click) }, crumb.id]]
+                                   : ["li", { className: "breadcrumb-item active" },                                                           crumb.id]),
+                  ]]],
+                view.view == "jobs" ? [jobs_view, { set_view: push_view, jobs_url: "/jobs" }] :
+                view.view == "runs" ? [runs_view, { set_view: push_view, runs_url: view.runs_url, job: view.job }] :
+                view.view == "log"  ? [log_view,  { set_view: push_view, run_url:  view.run_url,  job: view.job }]
+                                    : ["div", { className: "alert alert-danger" }, "Can't happen"]]);
 }
 
-async function refresh_runs(el, runs_url, job) {
-    ReactDOM.render(jsr([runs_view, { runs_url: runs_url, job: job }]), el);
-}
-
-async function refresh_log(el, run_url, job) {
-    ReactDOM.render(jsr([log_view, { run_url: run_url, job: job } ]), el);
+function nav({el, children}) {
+    return ReactDOM.createPortal(children, el);
 }
 
 async function fetch_json(url, options={}) {
@@ -146,15 +123,15 @@ function run_status(props) {
                     ["span", { className: "eta" }, "ETA: Unknown"]]]);
 }
 
-function card(title, body) {
-    return ["div", { className: "card" },
+function card(kind, title, body) {
+    return ["div", { className: `card ${kind}` },
             ["div", { className: "card-header" },
              ["h1", title]],
             ["div", { className: "card-body" },
              body]];
 }
 
-function jobs_view({jobs_url}) {
+function jobs_view({jobs_url, set_view}) {
     let [jobs, set_jobs] = React.useState(null);
     React.useEffect(() => {
         async function reload() {
@@ -166,7 +143,8 @@ function jobs_view({jobs_url}) {
         return () => clearInterval(id);
     }, [jobs_url]);
     return jobs == null ? jsr(["div", { className: "loading" }, "Loading..."])
-                        : jsr(card("Jobs",
+                        : jsr(card("jobs-view",
+                                   "Jobs",
                                    ["table", { className: "jobs" },
                                     ["thead",
                                      ["tr",
@@ -181,18 +159,18 @@ function jobs_view({jobs_url}) {
                                          return ["tr", { key: job.user+job.id, className: status },
                                                  ["td", svg[status] ],
                                                  ["td", job.user ],
-                                                 ["td", ["a", { href: "#", onClick: prevent_default(() => window.show_runs(job.runs_url, job)) }, job.name ]],
+                                                 ["td", ["a", { href: "#", onClick: prevent_default(() => set_view({ view:"runs", runs_url: job.runs_url, job:job })) }, job.name ]],
                                                  ["td", localiso(job.latest_run.date) ],
                                                  ["td", [run_status, {run:job.latest_run} ]],
                                                  ["td", { className: "logs-button" },
                                                   ["button", { type: "button", className: status+(job.latest_run.log_len == 0 && status != "Running" ? " disabled" : ""),
-                                                               onClick: prevent_default(() => { window.show_log(job.latest_run.url, job, job.latest_run.id) }) },
+                                                               onClick: prevent_default(() => set_view({ view:"log", run_url:job.latest_run.url, job:job, run_id:job.latest_run.id})) },
                                                    status == "Running" ? "Tail Log" : "Last Log", ]]];
                                      }),
                                     ]]));
 }
 
-function runs_view({runs_url, job}) {
+function runs_view({runs_url, job, set_view}) {
     let [runs, set_runs] = React.useState(null);
     React.useEffect(() => {
         async function reload() {
@@ -204,7 +182,8 @@ function runs_view({runs_url, job}) {
         return () => clearInterval(id);
     }, [runs_url]);
     return runs == null ? jsr(["div", { className: "loading" }, "Loading..."])
-                        : jsr(card(`${job.user} / ${job.name}`,
+                        : jsr(card("runs-view",
+                                   `${job.user} / ${job.name}`,
                                    ["table", { className: "jobs" },
                                     ["thead",
                                      ["tr",
@@ -215,7 +194,7 @@ function runs_view({runs_url, job}) {
                                     ["tbody",
                                      runs.sort((a,b) => b.date - a.date).map((run) => {
                                          let status = status_state(run.status);
-                                         let show_log = () => { window.show_log(run.url, job, run.id) };
+                                         let show_log = () => set_view({ view:"log", run_url:run.url, job:job, run_id:run.id });
                                          return ["tr", { key: job.user+job.id+run.id, className: status },
                                                  ["td", svg[status] ],
                                                  ["td", ["a", { href: "#", onClick: prevent_default(show_log) }, run.id ]],
@@ -249,7 +228,8 @@ function log_view({run_url, job}) {
     }
 
     let status = status_state(run.status);
-    return jsr(card([React.Fragment, svg[status_state(run.status)], ` ${job.user} / ${job.name} on ${localiso(run.date)}`],
+    return jsr(card("log-view",
+                    [React.Fragment, svg[status_state(run.status)], ` ${job.user} / ${job.name} on ${localiso(run.date)}`],
                     [["h2", "Command:"], ["code", run.cmd],
                      ["div", { className: `env ${show_env ? "show" : "hide"}` },
                       ["h2", { onClick: prevent_default(() => set_show_env(!show_env)) }, "Environment:"],

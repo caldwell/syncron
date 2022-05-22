@@ -61,7 +61,7 @@ nav.navbar {
     }
 }
 
-#log-view {
+.log-view {
     table { @extend .table; @extend .table-sm; }
     pre {
         overflow: unset;
