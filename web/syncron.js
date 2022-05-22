@@ -66,22 +66,15 @@ function main() {
 window.onload = main;
 
 async function refresh_jobs(jobs_div) {
-    ReactDOM.render(jsr([jobs_view, { jobs: await fetch_json("/jobs"), refresh: () => window.show_jobs(false) }]), jobs_div);
+    ReactDOM.render(jsr([jobs_view, { jobs_url: "/jobs" }]), jobs_div);
 }
 
 async function refresh_runs(el, runs_url, job) {
-    ReactDOM.render(jsr([runs_view, { runs: await fetch_json(runs_url), job: job, refresh: () => window.show_runs(job.runs_url, job, false) }]), el);
+    ReactDOM.render(jsr([runs_view, { runs_url: runs_url, job: job }]), el);
 }
 
 async function refresh_log(el, run_url, job) {
-    let run = await fetch_json(run_url);
-    ReactDOM.render(jsr([log_view, { run: run, job: job } ]), el);
-
-    if (!run.status) {
-        window.log_refresher = setTimeout(() => {
-            refresh_log(el, run_url, job);
-        }, 5 * 1000);
-    }
+    ReactDOM.render(jsr([log_view, { run_url: run_url, job: job } ]), el);
 }
 
 async function fetch_json(url, options={}) {
@@ -153,24 +146,28 @@ function run_status(props) {
                     ["span", { className: "eta" }, "ETA: Unknown"]]]);
 }
 
-function card_wrap(title, body, opts = {}) {
-    return function(props) {
-        let refresh_button;
-        const { refresh, ...body_props } = props;
-        return jsr(["div", { className: "card" },
-                    ["div", { className: "card-header" },
-                     ["h1", [title, body_props],
-                      !opts.hidebutton && ["button", _=>refresh_button=_, { type: "button", className:"refresh", onClick: prevent_default(() => { refresh_button.blur(); refresh(); }) }, svg["Refresh"] ]]],
-                    ["div", { className: "card-body" },
-                     [body, body_props]]]);
-    }
+function card(title, body) {
+    return ["div", { className: "card" },
+            ["div", { className: "card-header" },
+             ["h1", title]],
+            ["div", { className: "card-body" },
+             body]];
 }
 
-const jobs_view = card_wrap(() => jsr([React.Fragment, "Jobs"]), jobs_table);
+function jobs_view({jobs_url}) {
+    let [jobs, set_jobs] = React.useState(null);
+    React.useEffect(() => {
+        async function reload() {
+            set_jobs(await fetch_json(jobs_url));
+        }
 
-function jobs_table(props) {
-    let refresh;
-    return jsr(["table", { className: "jobs" },
+        reload();
+        let id = setInterval(reload, 60*1000);
+        return () => clearInterval(id);
+    }, [jobs_url]);
+    return jobs == null ? jsr(["div", { className: "loading" }, "Loading..."])
+                        : jsr(card("Jobs",
+            ["table", { className: "jobs" },
                 ["thead",
                  ["tr",
                   ["th", { scope: "col", className: "icon" } ],
@@ -179,7 +176,7 @@ function jobs_table(props) {
                   ["th", { scope: "col", className: "name" }, "Last Run Date"],
                   ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
                 ["tbody",
-                 props.jobs.map((job) => {
+                 jobs.map((job) => {
                      let status = status_state(job.latest_run.status);
                      return ["tr", { key: job.user+job.id, className: status },
                              ["td", svg[status] ],
@@ -192,14 +189,23 @@ function jobs_table(props) {
                                            onClick: prevent_default(() => { window.show_log(job.latest_run.url, job, job.latest_run.id) }) },
                                status == "Running" ? "Tail Log" : "Last Log", ]]];
                  }),
-                ]]);
+                ]]));
 }
 
-const runs_view = card_wrap((props) => jsr([React.Fragment, `${props.job.user} / ${props.job.name}`]), runs_table);
+function runs_view({runs_url, job}) {
+    let [runs, set_runs] = React.useState(null);
+    React.useEffect(() => {
+        async function reload() {
+            set_runs(await fetch_json(runs_url));
+        }
 
-function runs_table(props) {
-    let refresh;
-    return jsr(["table", { className: "jobs" },
+        reload();
+        let id = setInterval(reload, 60*1000);
+        return () => clearInterval(id);
+    }, [runs_url]);
+    return runs == null ? jsr(["div", { className: "loading" }, "Loading..."])
+                        : jsr(card(`${job.user} / ${job.name}`,
+               ["table", { className: "jobs" },
                 ["thead",
                  ["tr",
                   ["th", { scope: "col", className: "icon" } ],
@@ -207,37 +213,49 @@ function runs_table(props) {
                   ["th", { scope: "col", className: "size" }, "Log Size"],
                   ["th", { scope: "col", className: "status" }, "Status"]]],
                 ["tbody",
-                 props.runs.sort((a,b) => b.date - a.date).map((run) => {
+                 runs.sort((a,b) => b.date - a.date).map((run) => {
                      let status = status_state(run.status);
-                     let show_log = () => { window.show_log(run.url, props.job, run.id) };
-                     return ["tr", { key: props.job.user+props.job.id+run.id, className: status },
+                     let show_log = () => { window.show_log(run.url, job, run.id) };
+                     return ["tr", { key: job.user+job.id+run.id, className: status },
                              ["td", svg[status] ],
                              ["td", ["a", { href: "#", onClick: prevent_default(show_log) }, run.id ]],
                              ["td", human_bytes(run.log_len)],
                              ["td", [run_status, {run:run} ]],
                             ];
                  }),
-                ]]);
+                ]]));
 }
 
-const log_view = card_wrap((props) => jsr([React.Fragment, svg[status_state(props.run.status)], ` ${props.job.user} / ${props.job.name} on ${localiso(props.run.date)}`]),
-                           log_detail, { hidebutton: true });
-
-function log_detail(props) {
+function log_view({run_url, job}) {
     let [show_env, set_show_env] = React.useState(false);
+    let [run, set_run] = React.useState(null);
 
-    if (!props.run) {
+    React.useEffect(() => {
+        async function reload() {
+            let new_run = await fetch_json(run_url);
+            set_run(new_run);
+            if (new_run.status != null) // Stop refreshing once the run is finished
+                clearInterval(id);
+        }
+
+        reload();
+        let id = setInterval(reload, 1*1000);
+        return () => clearInterval(id);
+    }, [run_url]);
+
+    if (!run) {
         return jsr(["div", { className: "spinner-border text-primary", role: "status" },
                     ["span",  { className: "visually-hidden" }, "Loading..." ]]);
     }
 
-    let status = status_state(props.run.status);
-    return jsr([["h2", "Command:"], ["code", props.run.cmd],
+    let status = status_state(run.status);
+    return jsr(card([React.Fragment, svg[status_state(run.status)], ` ${job.user} / ${job.name} on ${localiso(run.date)}`],
+               [["h2", "Command:"], ["code", run.cmd],
                 ["div", { className: `env ${show_env ? "show" : "hide"}` },
                  ["h2", { onClick: prevent_default(() => set_show_env(!show_env)) }, "Environment:"],
                  ["table",
-                  ["tbody", props.run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
+                  ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
                 ["h2", "Output:"],
-                ["pre", props.run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing"}] : human_status(props.run.status)]
-               ]);
+                ["pre", run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing"}] : human_status(run.status)]
+               ]));
 }
