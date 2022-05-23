@@ -250,6 +250,6 @@ function log_view({run_url, job}) {
                       ["table",
                        ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
                      ["h2", "Output:"],
-                     ["pre", run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing"}] : human_status(run.status)]
+                     ["pre", run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing" }] : human_status(run.status)]
                     ]));
 }
