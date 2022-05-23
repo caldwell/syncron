@@ -212,10 +212,14 @@ function runs_view({runs_url, job, set_view}) {
 function log_view({run_url, job}) {
     let [show_env, set_show_env] = React.useState(false);
     let [run, set_run] = React.useState(null);
+    let [atbottom, set_atbottom] = React.useState(true);
+    let status = run && status_state(run);
 
     React.useEffect(() => {
         async function reload() {
             let new_run = await fetch_json(run_url);
+            set_atbottom(Math.abs(window.scrollMaxY - window.scrollY) < 5); // Hack. This is as close as I can come to right before react begins to render
+            console.log(`scroll at load: atbottom:${atbottom}, scrollY:${window.scrollY}, scrollYMax:${window.scrollMaxY}`);
             set_run(new_run);
             if (new_run.status != null) // Stop refreshing once the run is finished
                 clearInterval(id);
@@ -226,12 +230,18 @@ function log_view({run_url, job}) {
         return () => clearInterval(id);
     }, [run_url]);
 
+    React.useLayoutEffect(() => {
+        if (status == 'Running' && atbottom) {
+            console.log(`Initiating scroll: ${status}, atbottom=${atbottom}`);
+            window.scrollTo({top: window.scrollMaxY, behavior:"instant"});
+        }
+    });
+
     if (!run) {
         return jsr(["div", { className: "spinner-border text-primary", role: "status" },
                     ["span",  { className: "visually-hidden" }, "Loading..." ]]);
     }
 
-    let status = status_state(run);
     return jsr(card("log-view",
                     [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${localiso(run.date)}`],
                     [["h2", "Command:"], ["code", run.cmd],
