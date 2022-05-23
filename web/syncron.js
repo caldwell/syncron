@@ -131,16 +131,22 @@ function card(kind, title, body) {
              body]];
 }
 
+function synced_interval(period, offset, callback) {
+    let id = setTimeout(() => { // Sync up to *:02 and then interval over a minute
+        callback();
+        id = setInterval(callback, period);
+    }, 60*1000 - Date.now() % period + offset);
+    return () => clearInterval(id);
+}
+
 function jobs_view({jobs_url, set_view}) {
     let [jobs, set_jobs] = React.useState(null);
     React.useEffect(() => {
         async function reload() {
             set_jobs(await fetch_json(jobs_url));
         }
-
         reload();
-        let id = setInterval(reload, 60*1000);
-        return () => clearInterval(id);
+        return synced_interval(60*1000, 2000, reload);
     }, [jobs_url]);
     return jobs == null ? jsr(["div", { className: "loading" }, "Loading..."])
                         : jsr(card("jobs-view",
@@ -176,10 +182,8 @@ function runs_view({runs_url, job, set_view}) {
         async function reload() {
             set_runs(await fetch_json(runs_url));
         }
-
         reload();
-        let id = setInterval(reload, 60*1000);
-        return () => clearInterval(id);
+        return synced_interval(60*1000, 2000, reload);
     }, [runs_url]);
     return runs == null ? jsr(["div", { className: "loading" }, "Loading..."])
                         : jsr(card("runs-view",
