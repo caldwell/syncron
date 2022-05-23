@@ -80,10 +80,10 @@ function human_status(status) {
            'CoreDump' in status ? `Dumped Core with signal ${status.CoreDump}` : "???";
 }
 
-function status_state(status) {
-    return status == null           ? 'Running' :
-           (status.Exited??-1) == 0 ? 'Success' :
-                                      'Failure' ;
+function status_state(run) {
+    return run.status == null                               ? 'Running' :
+           (run.status.Exited??-1) == 0 || run.log_len == 0 ? 'Success' :
+                                                              'Failure' ;
 }
 
 function localiso(timestamp) {
@@ -107,7 +107,7 @@ function human_bytes(bytes) {
 }
 
 function run_status(props) {
-    let status = status_state(props.run.status);
+    let status = status_state(props.run);
     return jsr([React.Fragment,
                 status != "Running" && ["span", status, ["br"],
                                         ["span", { className: "status-deets" }, human_status(props.run.status) ]],
@@ -155,7 +155,7 @@ function jobs_view({jobs_url, set_view}) {
                                       ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
                                     ["tbody",
                                      jobs.map((job) => {
-                                         let status = status_state(job.latest_run.status);
+                                         let status = status_state(job.latest_run);
                                          return ["tr", { key: job.user+job.id, className: status },
                                                  ["td", svg[status] ],
                                                  ["td", job.user ],
@@ -193,7 +193,7 @@ function runs_view({runs_url, job, set_view}) {
                                       ["th", { scope: "col", className: "status" }, "Status"]]],
                                     ["tbody",
                                      runs.sort((a,b) => b.date - a.date).map((run) => {
-                                         let status = status_state(run.status);
+                                         let status = status_state(run);
                                          let show_log = () => set_view({ view:"log", run_url:run.url, job:job, run_id:run.id });
                                          return ["tr", { key: job.user+job.id+run.id, className: status },
                                                  ["td", svg[status] ],
@@ -227,9 +227,9 @@ function log_view({run_url, job}) {
                     ["span",  { className: "visually-hidden" }, "Loading..." ]]);
     }
 
-    let status = status_state(run.status);
+    let status = status_state(run);
     return jsr(card("log-view",
-                    [React.Fragment, svg[status_state(run.status)], ` ${job.user} / ${job.name} on ${localiso(run.date)}`],
+                    [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${localiso(run.date)}`],
                     [["h2", "Command:"], ["code", run.cmd],
                      ["div", { className: `env ${show_env ? "show" : "hide"}` },
                       ["h2", { onClick: prevent_default(() => set_show_env(!show_env)) }, "Environment:"],
