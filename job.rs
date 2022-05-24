@@ -377,6 +377,7 @@ mod tests {
     async fn integration() {
         let db = test_dir();
         let cmd = "echo a simple test";
+        std::env::set_var("MY_ENV_VAR", "some value");
         let db_path = db.path().to_path_buf();
         let _serve = tokio::spawn(async move { serve::serve(32923, db_path).await.unwrap(); });
         let _client = tokio::spawn(async move {
@@ -396,6 +397,16 @@ mod tests {
             assert_eq!(jobs[0].id,   "my-id");
             assert_eq!(jobs[0].user, "test-user");
             assert_eq!(jobs[0].name, "My Job");
+
+            let runs: Vec<serve::RunInfo> = serde_json::from_str(&job.api.get(&jobs[0].runs_url).await.expect("GET runs")).expect("GET runs parse");
+            assert_eq!(runs.len(), 1);
+            println!("runs: {:?}", runs);
+            assert_eq!(runs[0].status, Some(serve::ExitStatus::Exited(0)));
+
+            let run: serve::RunInfoFull = serde_json::from_str(&job.api.get(&runs[0].url.as_ref().expect("runs[0].url")).await.expect("GET run")).expect("GET run parse");
+            assert_eq!(run.cmd, cmd);
+            assert!(run.env.contains(&(MaybeUTF8::new(OsString::from("MY_ENV_VAR")), MaybeUTF8::new(OsString::from("some value")))));
+            assert_eq!(run.log.expect("run.log"), "a simple test\n");
 
             let _ = nix::sys::signal::kill(nix::unistd::getpid(), nix::sys::signal::Signal::SIGTERM); // Tell Rocket to shut down
         }).await.unwrap();

@@ -3,7 +3,7 @@
 use std::ffi::OsString;
 
 // Is all this worth a more readable serialization?
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum MaybeUTF8 {
     UTF8(String),

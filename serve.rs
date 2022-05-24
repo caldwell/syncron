@@ -137,7 +137,7 @@ async fn run_stdio(conf: &State<Config>, id: u128, data: String, _kind: OutKind)
     Ok(())
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum ExitStatus {
     Exited(i32),
     Signal(i32),
