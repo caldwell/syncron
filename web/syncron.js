@@ -246,11 +246,11 @@ function log_view({run_url, job}) {
                     [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${run ? localiso(run.date) : "…"}`],
                     !run ? [loading]
                          : [["h2", "Command:"], ["code", run.cmd],
-                     ["div", { className: `env ${show_env ? "show" : "hide"}` },
-                      ["h2", { onClick: prevent_default(() => set_show_env(!show_env)) }, "Environment:"],
-                      ["table",
-                       ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
-                     ["h2", "Output:"],
-                     ["pre", run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing" }] : human_status(run.status)]
-                    ]));
+                            ["div", { className: `env ${show_env ? "show" : "hide"}` },
+                             ["h2", { onClick: prevent_default(() => set_show_env(!show_env)) }, "Environment:"],
+                             ["table",
+                              ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
+                            ["h2", "Output:"],
+                            ["pre", run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing" }] : human_status(run.status)]
+                           ]));
 }
