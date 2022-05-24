@@ -4,12 +4,12 @@ import { React, ReactDOM, jsr } from "./lib/jsml-react-bundle.js"
 function main() {
     let [nav_el, app_view] = ["nav", "app-view"].map(id => document.getElementById(id));
 
-    ReactDOM.render(jsr([app, { nav_el: nav_el }]), app_view);
+    ReactDOM.render(jsr([app, Object.assign({ nav_el: nav_el }, history.state ? { initial_view:history.state } : {})]), app_view);
 }
 window.onload = main;
 
-function app({nav_el}) {
-    let [view, set_view] = React.useState({view: "jobs"});
+function app({nav_el, initial_view}) {
+    let [view, set_view] = React.useState(initial_view || {view: "jobs"});
 
     const push_view = (view) => {
         history.pushState(view, "", view.view == "jobs" ? '#' :
