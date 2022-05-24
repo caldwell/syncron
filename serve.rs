@@ -182,17 +182,17 @@ pub struct RunInfo {
 #[get("/jobs")]
 async fn jobs(conf: &State<Config>) -> WebResult<Json<Vec<JobInfo>>> {
     let db = Db::new(&conf.db_path.clone());
-    Ok(Json(db.jobs()?.iter()
+    Ok(Json(db.jobs().map_err(|e| wrap(&*e, "jobs"))?.iter()
             .map(|job| -> Result<JobInfo, Box<dyn Error>> {
                 (|| -> Result<JobInfo, Box<dyn Error>> {
-                    let latest_run = job.latest_run()?.unwrap();
+                    let latest_run = job.latest_run().map_err(|e| wrap(&*e, "latest_run"))?.unwrap();
                     Ok(JobInfo{ id:   job.id.clone(),
                                 user: job.user.clone(),
-                                name: job.name()?.clone(),
+                                name: job.name().map_err(|e| wrap(&*e, "name"))?.clone(),
                                 runs_url: uri!(get_runs(&job.user, &job.id)).to_string(),
                                 latest_run: RunInfo{
                                     status: latest_run.info().map_err(|e| wrap(&*e, "info"))?.status,
-                                    progress: latest_run.progress()?,
+                                    progress: latest_run.progress().map_err(|e| wrap(&*e, "progress"))?,
                                     date:     latest_run.date.timestamp(),
                                     id:       latest_run.run_id.clone(),
                                     log_len:  Some(latest_run.log_len()),
