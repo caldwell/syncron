@@ -157,28 +157,28 @@ function jobs_view({jobs_url, set_view}) {
                     "Jobs",
                     jobs == null ? [loading]
                                  : [["table", { className: "jobs" },
-                                    ["thead",
-                                     ["tr",
-                                      ["th", { scope: "col", className: "icon" } ],
-                                      ["th", { scope: "col", className: "user" }, "User"],
-                                      ["th", { scope: "col", className: "name" }, "Name"],
-                                      ["th", { scope: "col", className: "name" }, "Last Run Date"],
-                                      ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
-                                    ["tbody",
-                                     jobs.map((job) => {
-                                         let status = status_state(job.latest_run);
-                                         return ["tr", { key: job.user+job.id, className: status },
-                                                 ["td", svg[status] ],
-                                                 ["td", job.user ],
-                                                 ["td", ["a", { href: "#", onClick: prevent_default(() => set_view({ view:"runs", runs_url: job.runs_url, job:job })) }, job.name ]],
-                                                 ["td", localiso(job.latest_run.date) ],
-                                                 ["td", [run_status, {run:job.latest_run} ]],
-                                                 ["td", { className: "logs-button" },
-                                                  ["button", { type: "button", className: status+(job.latest_run.log_len == 0 && status != "Running" ? " disabled" : ""),
-                                                               onClick: prevent_default(() => set_view({ view:"log", run_url:job.latest_run.url, job:job, run_id:job.latest_run.id})) },
-                                                   status == "Running" ? "Tail Log" : "Last Log", ]]];
-                                     }),
-                                    ]],
+                                     ["thead",
+                                      ["tr",
+                                       ["th", { scope: "col", className: "icon" } ],
+                                       ["th", { scope: "col", className: "user" }, "User"],
+                                       ["th", { scope: "col", className: "name" }, "Name"],
+                                       ["th", { scope: "col", className: "name" }, "Last Run Date"],
+                                       ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
+                                     ["tbody",
+                                      jobs.map((job) => {
+                                          let status = status_state(job.latest_run);
+                                          return ["tr", { key: job.user+job.id, className: status },
+                                                  ["td", svg[status] ],
+                                                  ["td", job.user ],
+                                                  ["td", ["a", { href: "#", onClick: prevent_default(() => set_view({ view:"runs", runs_url: job.runs_url, job:job })) }, job.name ]],
+                                                  ["td", localiso(job.latest_run.date) ],
+                                                  ["td", [run_status, {run:job.latest_run} ]],
+                                                  ["td", { className: "logs-button" },
+                                                   ["button", { type: "button", className: status+(job.latest_run.log_len == 0 && status != "Running" ? " disabled" : ""),
+                                                                onClick: prevent_default(() => set_view({ view:"log", run_url:job.latest_run.url, job:job, run_id:job.latest_run.id})) },
+                                                    status == "Running" ? "Tail Log" : "Last Log", ]]];
+                                      }),
+                                     ]],
                                     jobs.length == 0 && [['h3', "There are no jobs."], ["a", { href: "/docs/adding-jobs" }, "How do I add jobs?"]],
                                    ]));
 }
