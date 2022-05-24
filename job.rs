@@ -145,6 +145,14 @@ pub struct ServerRun {
     pub client_id: Option<u128>,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct ServerRunInfo {
+    pub cmd:    String,
+    pub env:    Vec<(MaybeUTF8,MaybeUTF8)>,
+    pub end:    Option<chrono::DateTime<chrono::Utc>>,
+    pub status: Option<serve::ExitStatus>,
+}
+
 pub fn slug(st: &str) -> String {
     let mut slug = st.replace(|ch: char| !ch.is_ascii_alphanumeric(), "-");
     slug.make_ascii_lowercase();
@@ -243,10 +251,8 @@ impl ServerRun {
     }
 
     pub fn run_path(&self)             -> PathBuf {self.job.job_path().join(&self.run_id)}
-    pub fn cmd_path(&self)             -> PathBuf {self.run_path().join("cmd")}
-    pub fn env_path(&self)             -> PathBuf {self.run_path().join("env")}
+    pub fn info_path(&self)            -> PathBuf {self.run_path().join("info")}
     pub fn log_path(&self)             -> PathBuf {self.run_path().join("log")}
-    pub fn status_path(&self)          -> PathBuf {self.run_path().join("status")}
     pub fn progress_path(&self)        -> PathBuf {self.run_path().join("progress")}
 
     fn mkdir_p(&self) -> Result<(), std::io::Error> {
@@ -254,18 +260,18 @@ impl ServerRun {
     }
 
     pub fn exists(&self) -> bool {
-        self.cmd_path().is_file()
+        self.info_path().is_file()
     }
 
-    pub fn set_env(&self, env: &Vec<(MaybeUTF8,MaybeUTF8)>) -> Result<(), Box<dyn Error>> {
-        self.mkdir_p()?;
-        File::create(self.env_path())?.write_all(&serde_json::to_vec(&env)?)?;
-        Ok(())
+    pub fn info(&self) -> Result<ServerRunInfo, Box<dyn Error>> {
+        let path = self.info_path();
+        if !path.is_file() { Err("No info file!")? }
+        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
     }
 
-    pub fn set_cmd(&self, cmd: &str) -> Result<(), Box<dyn Error>> {
+    pub fn set_info(&self, info: &ServerRunInfo) -> Result<(), Box<dyn Error>> {
         self.mkdir_p()?;
-        File::create(self.cmd_path())?.write_all(cmd.as_bytes())?;
+        File::create(self.info_path())?.write_all(&serde_json::to_vec(&info)?)?;
         Ok(())
     }
 
@@ -276,25 +282,14 @@ impl ServerRun {
     }
 
     pub fn complete(&self, status: serve::ExitStatus) -> Result<(), Box<dyn Error>> {
-        File::create(self.status_path())?.write_all(&serde_json::to_vec(&status)?)?;
+        let mut info = self.info()?;
+        info.end = Some(chrono::Local::now().into());
+        info.status = Some(status);
+        self.set_info(&info)?;
         if let Some(client_id) = self.client_id {
             std::fs::remove_file(self.job.db.ids_path().join(&format!("{}", client_id)))?;
         }
         Ok(())
-    }
-
-    pub fn cmd(&self) -> Result<String, Box<dyn Error>> {
-        Ok(String::from_utf8_lossy(&std::fs::read(self.cmd_path())?).to_string())
-    }
-
-    pub fn env(&self) -> Result<Vec<(MaybeUTF8,MaybeUTF8)>, Box<dyn Error>> {
-        Ok(serde_json::from_slice(&std::fs::read(self.env_path())?)?)
-    }
-
-    pub fn status(&self) -> Result<Option<serve::ExitStatus>, Box<dyn Error>> {
-        let path = self.status_path();
-        if !path.is_file() { return Ok(None) }
-        Ok(Some(serde_json::from_slice(&std::fs::read(path)?)?))
     }
 
     pub fn progress(&self) -> Result<Option<serve::Progress>, Box<dyn Error>> {
@@ -341,13 +336,17 @@ mod tests {
         let cmd = "echo a simple test";
         let run = ServerRun::create(db.path().into(), "test-user", "David's The _absolute_ Greatest", None).expect("ServerRun create worked");
         assert_eq!(run.job.id, "david-s-the-absolute-greatest");
-        run.set_cmd(cmd).expect("set_cmd worked");
         let env = vec![
             (MaybeUTF8::new(OsString::from("PATH")),            MaybeUTF8::new(OsString::from("Something:something_else/"))),
             (MaybeUTF8::new(OsString::from("HOME")),            MaybeUTF8::new(OsString::from("/home/my-home-dir"))),
             (MaybeUTF8::new(OsString::from("SOMETHING WACKY")), MaybeUTF8::new(OsString::from("Oh\nDear"))),
         ];
-        run.set_env(&env).expect("set_env worked");
+        run.set_info(&ServerRunInfo{
+            cmd:    cmd.to_string(),
+            env:    env,
+            end:    None,
+            status: None,
+        }).expect("set_info worked");
 
         let id = run.client_id.expect("got client_id");
         let mut run2 = ServerRun::from_client_id(db.path().into(), id).expect("ServerRun::from_client_id()");
@@ -362,7 +361,10 @@ mod tests {
         run2.complete(serve::ExitStatus::Exited(0)).expect("completed with no errors");
 
         //let _=std::process::Command::new("find").arg(db.path()).arg("-ls").status();
-        assert_file_eq!(&db.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest").join(&run.run_id).join("cmd"), cmd);
+        let info = serde_json::from_slice::<ServerRunInfo>(&std::fs::read(db.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest").join(&run.run_id).join("info"))
+                                                                         .expect("info file exists"))
+                                         .expect("Info file is valid json");
+        assert_eq!(info.cmd, cmd);
         assert_file_eq!(&db.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest").join(&run.run_id).join("log"), "Some text. Some more text.\nEven more text.\n");
 
         let run3 = ServerRun::from_client_id(db.path().into(), id);
@@ -382,7 +384,10 @@ mod tests {
             let job = crate::job::ClientJob::new("http://127.0.0.1:32923/".parse().unwrap(), "test-user", "My Job", Some("my-id"), None, cmd).await.unwrap();
             job.run().await.expect("job ran");
             //let _=std::process::Command::new("find").arg(db.path()).arg("-ls").status();
-            assert_file_eq!(&db.path().join("jobs").join("test-user").join("my-id").join(&job.run_id).join("cmd"), "echo a simple test");
+            let info = serde_json::from_slice::<ServerRunInfo>(&std::fs::read(db.path().join("jobs").join("test-user").join("my-id").join(&job.run_id).join("info"))
+                                                                             .expect("info file exists"))
+                                             .expect("Info file is valid json");
+            assert_eq!(info.cmd, "echo a simple test");
             assert_file_eq!(&db.path().join("jobs").join("test-user").join("my-id").join(&job.run_id).join("log"), "a simple test\n");
             //std::process::Command::new("find").arg(db.path()).arg("-ls").status();
 

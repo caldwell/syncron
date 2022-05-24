@@ -10,7 +10,7 @@ use rocket::State;
 use rocket::fairing::AdHoc;
 use rocket_dyn_templates::{Template,context};
 
-use crate::job::{ServerJob,ServerRun};
+use crate::job::{ServerJob,ServerRun,ServerRunInfo};
 use crate::db::Db;
 use crate::maybe_utf8::MaybeUTF8;
 
@@ -101,8 +101,12 @@ pub struct CreateRunResp {
 #[post("/run/create", data="<req>")]
 async fn run_create(conf: &State<Config>, req: Json<CreateRunReq>) -> WebResult<Json<CreateRunResp>> {
     let run = ServerRun::create(conf.db_path.clone(), &req.user, &req.name, req.id.as_deref())?;
-    run.set_cmd(&req.cmd)?;
-    run.set_env(&req.env)?;
+    run.set_info(&ServerRunInfo{
+        cmd:    req.cmd.clone(),
+        env:    req.env.clone(),
+        end:    None,
+        status: None,
+    })?;
     Ok(Json(CreateRunResp { id:format!("{}", run.client_id.unwrap()), job_id: run.job.id, run_id: run.run_id }))
 }
 
@@ -187,7 +191,7 @@ async fn jobs(conf: &State<Config>) -> WebResult<Json<Vec<JobInfo>>> {
                                 name: job.name()?.clone(),
                                 runs_url: uri!(get_runs(&job.user, &job.id)).to_string(),
                                 latest_run: RunInfo{
-                                    status: latest_run.status()?,
+                                    status: latest_run.info().map_err(|e| wrap(&*e, "info"))?.status,
                                     progress: latest_run.progress()?,
                                     date:     latest_run.date.timestamp(),
                                     id:       latest_run.run_id.clone(),
@@ -222,8 +226,9 @@ async fn get_runs(conf: &State<Config>, user: &str, job_id: &str) -> WebResult<J
     let db = Db::new(&conf.db_path.clone());
     let job = ServerJob::new(&db, user, job_id).map_err(|e| wrap(&*e, "ServerJob"))?;
     Ok(Json(job.runs()?.into_iter().map(|run| -> Result<RunInfo, Box<dyn Error>> {
+        let info = run.info().map_err(|e| wrap(&*e, "info"))?;
         Ok(RunInfo{
-            status:   run.status().map_err(|e| wrap(&*e, "status"))?,
+            status:   info.status,
             progress: run.progress().map_err(|e| wrap(&*e, "progress"))?,
             date:     run.date.timestamp(),
             id:       run.run_id.clone(),
@@ -239,17 +244,18 @@ async fn get_run(conf: &State<Config>, user: &str, job_id: &str, run_id: &str, s
     //Err(Debug(format!("This is a test")))?;
     let job = ServerJob::new(&db, user, job_id).map_err(|e| wrap(&*e, "ServerJob"))?;
     let run = job.run(run_id).map_err(|e| wrap(&*e, "run"))?;
+    let info = run.info().map_err(|e| wrap(&*e, "info"))?;
     Ok(Json(RunInfoFull{
         run_info: RunInfo {
-            status:   run.status().map_err(|e| wrap(&*e, "status"))?,
+            status:   info.status,
             progress: run.progress().map_err(|e| wrap(&*e, "progress"))?,
             date:     run.date.timestamp(),
             id:       run.run_id.clone(),
             url:      None,
             log_len:  None,
         },
-        cmd:      run.cmd().map_err(|e| wrap(&*e, "cmd"))?,
-        env:      run.env().unwrap_or(vec![]),//run.env().map_err(|e| wrap(&*e, "env"))?,
+        cmd:      info.cmd,
+        env:      info.env,
         log:      run.log(seek).map_err(|e| wrap(&*e, "log"))?,
         seek:     seek,
     }))
