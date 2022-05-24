@@ -123,6 +123,11 @@ function run_status(props) {
                     ["span", { className: "eta" }, "ETA: Unknown"]]]);
 }
 
+function loading({}) {
+    return jsr(["div", { className: "spinner-border text-primary", role: "status" },
+                ["span",  { className: "visually-hidden" }, "Loading..." ]]);
+}
+
 function card(kind, title, body) {
     return ["div", { className: `card ${kind}` },
             ["div", { className: "card-header" },
@@ -148,10 +153,10 @@ function jobs_view({jobs_url, set_view}) {
         reload();
         return synced_interval(60*1000, 2000, reload);
     }, [jobs_url]);
-    return jobs == null ? jsr(["div", { className: "loading" }, "Loading..."])
-                        : jsr(card("jobs-view",
-                                   "Jobs",
-                                   ["table", { className: "jobs" },
+    return jsr(card("jobs-view",
+                    "Jobs",
+                    jobs == null ? [loading]
+                                 : ["table", { className: "jobs" },
                                     ["thead",
                                      ["tr",
                                       ["th", { scope: "col", className: "icon" } ],
@@ -185,10 +190,10 @@ function runs_view({runs_url, job, set_view}) {
         reload();
         return synced_interval(60*1000, 2000, reload);
     }, [runs_url]);
-    return runs == null ? jsr(["div", { className: "loading" }, "Loading..."])
-                        : jsr(card("runs-view",
-                                   `${job.user} / ${job.name}`,
-                                   ["table", { className: "jobs" },
+    return jsr(card("runs-view",
+                    `${job.user} / ${job.name}`,
+                    runs == null ? [loading]
+                                 : ["table", { className: "jobs" },
                                     ["thead",
                                      ["tr",
                                       ["th", { scope: "col", className: "icon" } ],
@@ -237,14 +242,10 @@ function log_view({run_url, job}) {
         }
     });
 
-    if (!run) {
-        return jsr(["div", { className: "spinner-border text-primary", role: "status" },
-                    ["span",  { className: "visually-hidden" }, "Loading..." ]]);
-    }
-
     return jsr(card("log-view",
-                    [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${localiso(run.date)}`],
-                    [["h2", "Command:"], ["code", run.cmd],
+                    [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${run ? localiso(run.date) : "…"}`],
+                    !run ? [loading]
+                         : [["h2", "Command:"], ["code", run.cmd],
                      ["div", { className: `env ${show_env ? "show" : "hide"}` },
                       ["h2", { onClick: prevent_default(() => set_show_env(!show_env)) }, "Environment:"],
                       ["table",
