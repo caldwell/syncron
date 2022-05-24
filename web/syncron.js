@@ -12,7 +12,7 @@ function app({nav_el}) {
     let [view, set_view] = React.useState({view: "jobs"});
 
     const push_view = (view) => {
-        history.pushState(view, "", view.view == "jobs" ? '' :
+        history.pushState(view, "", view.view == "jobs" ? '#' :
                                     view.view == "runs" ? `#${view.job.user}/${view.job.name}` :
                                     view.view == "log"  ? `#${view.job.user}/${view.job.name}/${view.run_id}` : '#cant-happen');
         set_view(view);
