@@ -17,6 +17,7 @@ impl Db {
     pub fn jobs_path(&self)         -> PathBuf { self.db.join("jobs") }
 
     pub fn dirs(&self, dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+        if !dir.exists() { return Ok(vec![]); }
         Ok(std::fs::read_dir(dir)?
            .filter_map(|entry| entry.ok())
            .filter(|entry| match entry.metadata() { Ok(m) => m.file_type().is_dir(), _ => false })
