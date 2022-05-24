@@ -156,7 +156,7 @@ function jobs_view({jobs_url, set_view}) {
     return jsr(card("jobs-view",
                     "Jobs",
                     jobs == null ? [loading]
-                                 : ["table", { className: "jobs" },
+                                 : [["table", { className: "jobs" },
                                     ["thead",
                                      ["tr",
                                       ["th", { scope: "col", className: "icon" } ],
@@ -178,7 +178,9 @@ function jobs_view({jobs_url, set_view}) {
                                                                onClick: prevent_default(() => set_view({ view:"log", run_url:job.latest_run.url, job:job, run_id:job.latest_run.id})) },
                                                    status == "Running" ? "Tail Log" : "Last Log", ]]];
                                      }),
-                                    ]]));
+                                    ]],
+                                    jobs.length == 0 && [['h3', "There are no jobs."], ["a", { href: "/docs/adding-jobs" }, "How do I add jobs?"]],
+                                   ]));
 }
 
 function runs_view({runs_url, job, set_view}) {
