@@ -8,6 +8,8 @@ an easy to read web application.
 Architecture
 ------------
 
+![Architecture Overview](architecture.svg)
+
 Syncron consists of a client and a server. The client runs on each machine
 you want to collect job data from. It is designed to act as a "passthrough
 shell"--you tell cron to use it as your shell (via the `SHELL` environment
