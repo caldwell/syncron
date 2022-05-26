@@ -66,6 +66,7 @@ async fn docs_index() -> Redirect {
     Redirect::to(uri!(docs("intro")))
 }
 
+// This is called with input from our own source code, so if there are errors, be loud.
 fn utf8_or_bust(bytes: Vec<u8>, origin: &str) -> String {
     String::from_utf8(bytes).or_else::<(),_>(|e| Ok(format!("# UTF-8 error in {}: {}", origin, e))).unwrap()
 }
