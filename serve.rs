@@ -1,14 +1,14 @@
 // Copyright © 2022 David Caldwell <david@porkrind.org>
 
 use std::error::Error;
+use std::io::Read;
 use std::path::{Path,PathBuf};
 
-use rocket::fs::NamedFile;
+use rocket::http::ContentType;
 use rocket::response::{Debug,Redirect};
 use rocket::serde::{Serialize, Deserialize, json::Json};
 use rocket::State;
 use rocket::fairing::AdHoc;
-use rocket_dyn_templates::{Template,context};
 
 use crate::job::{ServerJob,ServerRun,ServerRunInfo};
 use crate::db::Db;
@@ -29,13 +29,36 @@ impl Default for Config {
 type WebResult<T, E = Debug<Box<dyn Error>>> = std::result::Result<T, E>; // What is this magic??
 
 #[get("/")]
-async fn index() -> Option<NamedFile> {
-    NamedFile::open(Path::new("web/index.html")).await.ok()
+async fn index() -> Option<(ContentType, String)> {
+    files("index.html".into()).await
 }
 
 #[get("/<file..>")]
-async fn files(file: PathBuf) -> Option<NamedFile> {
-    NamedFile::open(Path::new("web/").join(file)).await.ok()
+async fn files(file: PathBuf) -> Option<(ContentType, String)> {
+    file_from_zip_or_fs(&Path::new("web/").join(file))
+}
+
+fn file_from_zip_or_fs(file: &Path) -> Option<(ContentType, String)> {
+    let content_type = ContentType::from_extension(&file.extension().and_then(|ext| ext.to_str()).unwrap_or("none")).unwrap_or(ContentType::Binary);
+    if let Ok(contents) = extract_from_exe_zip(&file) {
+        debug!("Serving from .zip: {:?}", file);
+        return Some((content_type, contents));
+    }
+
+    std::fs::File::open(file).and_then(|mut file| {
+        let mut buf = String::new();
+        file.read_to_string(&mut buf)?;
+        debug!("Serving from fs: {:?}", file);
+        Ok((content_type, buf))
+    }).ok()
+}
+
+fn extract_from_exe_zip(file: &Path) -> Result<String, Box<dyn Error>> {
+    let mut archive = zip::ZipArchive::new(std::fs::File::open(Path::new(&std::env::args_os().nth(0).ok_or("no exe")?))?)?;
+    let mut zipfile = archive.by_name(file.to_str().ok_or("bad file unicode encoding")?)?;
+    let mut buf = String::new();
+    zipfile.read_to_string(&mut buf)?;
+    Ok(buf)
 }
 
 #[get("/docs")]
@@ -48,16 +71,17 @@ fn utf8_or_bust(bytes: Vec<u8>, origin: &str) -> String {
 }
 
 #[get("/docs/<file..>")]
-async fn docs(file: PathBuf) -> Option<Template> {
-    let contents = std::fs::read(Path::new("docs").join("index.md")).ok();
-    std::fs::read(Path::new("docs").join(file.with_extension("md"))).ok()
-                                   .map(|md| {
+async fn docs(file: PathBuf) -> Option<(ContentType, String)> {
+    let template = file_from_zip_or_fs(&Path::new("web").join("docs.html.tera")).map(|(_,f)| f).unwrap_or("No template file???".into());
+    let contents = file_from_zip_or_fs(&Path::new("docs").join("index.md")).map(|(_,f)| f).unwrap_or("No contents file???".into());
+    file_from_zip_or_fs(&Path::new("docs").join(file.with_extension("md")))
+                                   .map(|(_,md)| {
                                        use comrak::{parse_document,format_html,markdown_to_html,Arena,ComrakOptions};
                                        let mut options = ComrakOptions::default();
                                        options.extension.header_ids = Some("".to_string());
 
                                        let arena = Arena::new();
-                                       let root = parse_document(&arena, &utf8_or_bust(md, &file.to_string_lossy()), &options);
+                                       let root = parse_document(&arena, &md, &options);
 
                                        // If the first node is an <h1>, then pull it off and set it to the title so the template can render it nicer.
                                        let mut title = vec![];
@@ -73,12 +97,14 @@ async fn docs(file: PathBuf) -> Option<Template> {
                                            html = format!("Error rendering markdown ast of '{}' into html: {}", file.display(), e).as_bytes().to_vec();
                                        }
 
-                                       Template::render("docs", context! {
-                                           title: utf8_or_bust(title, &file.to_string_lossy()),
-                                           content: utf8_or_bust(html, &file.to_string_lossy()),
-                                           contents: markdown_to_html(&utf8_or_bust(contents.unwrap_or("No contents file???".into()), "docs/index.md"),
-                                                                              &ComrakOptions::default()),
-                                       })
+                                       trace!("title = {}", String::from_utf8(title.clone()).unwrap());
+                                       trace!("html = {}", String::from_utf8(html.clone()).unwrap());
+
+                                       // This used to be real tera, but now we're faking it
+                                       (ContentType::HTML, template
+                                           .replace("{{ contents | safe }}", &markdown_to_html(&contents, &ComrakOptions::default()))
+                                           .replace("{{ title | safe }}",    &utf8_or_bust(title, &file.to_string_lossy()))
+                                           .replace("{{ content | safe }}",  &utf8_or_bust(html,   &file.to_string_lossy())))
                                    })
 }
 
@@ -267,12 +293,10 @@ pub async fn serve(port: u16, db_path: PathBuf) -> Result<(), Box<dyn std::error
         .merge(("port", port))
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"))
-        .merge(("db_path", db_path))
-        .merge(("template_dir", "web"));
+        .merge(("db_path", db_path));
     let _rocket = rocket::custom(figment)
         .mount("/", routes![index, files, docs_index, docs,
                             run_create, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run])
-        .attach(Template::fairing())
         .attach(AdHoc::config::<Config>())
         .launch().await?;
     Ok(())
