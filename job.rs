@@ -379,7 +379,7 @@ mod tests {
         let cmd = "echo a simple test";
         std::env::set_var("MY_ENV_VAR", "some value");
         let db_path = db.path().to_path_buf();
-        let _serve = tokio::spawn(async move { serve::serve(32923, db_path).await.unwrap(); });
+        let _serve = tokio::spawn(async move { serve::serve(32923, db_path, true).await.unwrap(); });
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
             let job = crate::job::ClientJob::new("http://127.0.0.1:32923/".parse().unwrap(), "test-user", "My Job", Some("my-id"), None, cmd).await.unwrap();
@@ -408,7 +408,7 @@ mod tests {
             assert!(run.env.contains(&(MaybeUTF8::new(OsString::from("MY_ENV_VAR")), MaybeUTF8::new(OsString::from("some value")))));
             assert_eq!(run.log.expect("run.log"), "a simple test\n");
 
-            let _ = nix::sys::signal::kill(nix::unistd::getpid(), nix::sys::signal::Signal::SIGTERM); // Tell Rocket to shut down
+            job.api.post("/shutdown", &[]).await.expect("POST /shutdown");
         }).await.unwrap();
         _serve.await.unwrap();
     }

@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if args.cmd_serve {
         let db = args.flag_db.ok_or("missing --db or SYNCRON_DB environment variable")?;
-        let serve = async { serve::serve(args.flag_port, db.clone().into()).await.map_err(|e| format!("serve failed: {}", e)) };
+        let serve = async { serve::serve(args.flag_port, db.clone().into(), false).await.map_err(|e| format!("serve failed: {}", e)) };
         tokio::join!(serve).0?;
     }
     Ok(())

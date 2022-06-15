@@ -291,16 +291,24 @@ async fn get_run(conf: &State<Config>, user: &str, job_id: &str, run_id: &str, s
     }))
 }
 
-pub async fn serve(port: u16, db_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+#[post("/shutdown")]
+fn shutdown(shutdown: rocket::Shutdown) -> &'static str {
+    shutdown.notify();
+    "Shutting down..."
+}
+
+pub async fn serve(port: u16, db_path: PathBuf, enable_shutdown: bool) -> Result<(), Box<dyn std::error::Error>> {
     let figment = figment::Figment::from(rocket::Config::figment())
         .merge(("address", "0.0.0.0".parse::<std::net::IpAddr>().unwrap()))
         .merge(("port", port))
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"))
         .merge(("db_path", db_path));
+    let mut routes = routes![index, files, docs_index, docs,
+                             run_create, run_heartbeat, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run];
+    if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
-        .mount("/", routes![index, files, docs_index, docs,
-                            run_create, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run])
+        .mount("/", routes)
         .attach(AdHoc::config::<Config>())
         .launch().await?;
     Ok(())
