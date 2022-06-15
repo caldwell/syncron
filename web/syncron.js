@@ -83,9 +83,9 @@ function human_status(status) {
 }
 
 function status_state(run) {
-    return run.status == null                               ? 'Running' :
-           (run.status.Exited??-1) == 0 || run.log_len == 0 ? 'Success' :
-                                                              'Failure' ;
+    return run.status == null                                                          ? 'Running' :
+           run.status.Exited != void 0 && (run.status.Exited == 0 || run.log_len == 0) ? 'Success' :
+                                                                                         'Failure' ;
 }
 
 function localiso(timestamp) {
