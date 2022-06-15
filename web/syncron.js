@@ -167,7 +167,7 @@ function jobs_view({jobs_url, set_view}) {
                                        ["th", { scope: "col", className: "name" }, "Last Run Date"],
                                        ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
                                      ["tbody",
-                                      jobs.map((job) => {
+                                      jobs.sort((a,b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())).map((job) => {
                                           let status = status_state(job.latest_run);
                                           return ["tr", { key: job.user+job.id, className: status },
                                                   ["td", svg[status] ],
