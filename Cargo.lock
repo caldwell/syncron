@@ -2119,6 +2119,7 @@ dependencies = [
  "getrandom",
  "log",
  "nix",
+ "rand",
  "reqwest",
  "rocket",
  "serde",

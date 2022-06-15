@@ -52,17 +52,40 @@ impl ClientJob {
 
         let outpiper = ClientJob::copy_output(self.api.clone(), child.stdout.take().unwrap(), self.id.clone(), serve::OutKind::Stdout);
         let errpiper = ClientJob::copy_output(self.api.clone(), child.stderr.take().unwrap(), self.id.clone(), serve::OutKind::Stderr);
-        // Something something timeout here:
-        // tokio::select! {
-        //     _ = child.wait() => {}
-        // }
-        tokio::join!(outpiper, errpiper);
+        let pipers = async { tokio::join!(outpiper, errpiper) };
+        let heartbeat = async {//|| -> Result<(), ()> {
+            let now = std::time::Instant::now();
+            loop {
+                trace!("Waiting 1 second");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                if self.timeout.is_some() && now.elapsed() > self.timeout.unwrap() {
+                    trace!("Timed out");
+                    return Err(now.elapsed());
+                }
+                trace!("Sending Hearbeat");
+                let _resp = self.api.post(&format!("/run/{}/heartbeat", self.id), &[]).await;
+            }
+            #[allow(unreachable_code)] Ok(()) // if I remove this, it errs.
+        };
+        let mut timeout = false;
+        loop {
+            tokio::select! {
+                _            = pipers    => { break; },
+                Err(elapsed) = heartbeat => {
+                    trace!("Timeout reached after {:?}! Killing child {:?}", elapsed, child);
+                    timeout = true;
+                    child.kill().await?;
+                    break;
+                },
+            }
+        }
         let exitcode = child.wait().await?;
-        let status = match (exitcode.code(), exitcode.signal(), exitcode.core_dumped()) {
-            (Some(code), _,         _)     => serve::ExitStatus::Exited(code),
-            (_,          Some(sig), false) => serve::ExitStatus::Signal(sig),
-            (_,          Some(sig), true)  => serve::ExitStatus::CoreDump(sig),
-            (None,       None,      _)     => panic!("Can't happen"),
+        let status = match (exitcode.code(), exitcode.signal(), exitcode.core_dumped(), timeout) {
+            (_,          _,         _,     true)  => serve::ExitStatus::ClientTimeout,
+            (Some(code), _,         _,     _)     => serve::ExitStatus::Exited(code),
+            (_,          Some(sig), false, _)     => serve::ExitStatus::Signal(sig),
+            (_,          Some(sig), true,  _)     => serve::ExitStatus::CoreDump(sig),
+            (None,       None,      _,     _)     => panic!("Can't happen"),
         };
         self.api.post(&format!("/run/{}/complete", self.id), &serde_json::to_string(&status)?.as_bytes()).await?;
         Ok(())
@@ -145,7 +168,7 @@ pub struct ServerRun {
     pub client_id: Option<u128>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct ServerRunInfo {
     pub cmd:    String,
     pub env:    Vec<(MaybeUTF8,MaybeUTF8)>,
@@ -254,6 +277,7 @@ impl ServerRun {
     pub fn info_path(&self)            -> PathBuf {self.run_path().join("info")}
     pub fn log_path(&self)             -> PathBuf {self.run_path().join("log")}
     pub fn progress_path(&self)        -> PathBuf {self.run_path().join("progress")}
+    pub fn heartbeat_path(&self)       -> PathBuf {self.run_path().join("heartbeat")}
 
     fn mkdir_p(&self) -> Result<(), std::io::Error> {
         std::fs::DirBuilder::new().recursive(true).create(self.run_path())
@@ -266,7 +290,15 @@ impl ServerRun {
     pub fn info(&self) -> Result<ServerRunInfo, Box<dyn Error>> {
         let path = self.info_path();
         if !path.is_file() { Err("No info file!")? }
-        Ok(serde_json::from_slice(&std::fs::read(path)?)?)
+        let mut info: ServerRunInfo = serde_json::from_slice(&std::fs::read(path)?)?;
+        if info.status.is_none() {
+            if let Ok(ts) = self.heartbeat() {
+                if chrono::Local::now().timestamp() - ts > 30 {
+                    info = self.complete_with_info(&info, serve::ExitStatus::ServerTimeout)?;
+                }
+            }
+        }
+        Ok(info)
     }
 
     pub fn set_info(&self, info: &ServerRunInfo) -> Result<(), Box<dyn Error>> {
@@ -281,15 +313,29 @@ impl ServerRun {
         Ok(())
     }
 
-    pub fn complete(&self, status: serve::ExitStatus) -> Result<(), Box<dyn Error>> {
-        let mut info = self.info()?;
-        info.end = Some(chrono::Local::now().into());
-        info.status = Some(status);
-        self.set_info(&info)?;
+    pub fn set_heartbeat(&self) -> Result<(), Box<dyn Error>> {
+        let ts = format!("{}", chrono::Local::now().timestamp());
+        atomic_file_write(&self.heartbeat_path(), ts.as_bytes())?;
+        Ok(())
+    }
+
+    pub fn heartbeat(&self) -> Result<i64, Box<dyn Error>> {
+        Ok(String::from_utf8_lossy(&std::fs::read(&self.heartbeat_path())?).parse::<i64>()?)
+    }
+
+    pub fn complete(&self, status: serve::ExitStatus) -> Result<ServerRunInfo, Box<dyn Error>> {
+        self.complete_with_info(&self.info()?, status)
+    }
+
+    pub fn complete_with_info(&self, info: &ServerRunInfo, status: serve::ExitStatus) -> Result<ServerRunInfo, Box<dyn Error>> {
+        let mut new_info: ServerRunInfo = info.clone();
+        new_info.end = Some(chrono::Local::now().into());
+        new_info.status = Some(status);
+        self.set_info(&new_info)?;
         if let Some(client_id) = self.client_id {
             std::fs::remove_file(self.job.db.ids_path().join(&format!("{}", client_id)))?;
         }
-        Ok(())
+        Ok(new_info)
     }
 
     pub fn progress(&self) -> Result<Option<serve::Progress>, Box<dyn Error>> {
@@ -313,6 +359,15 @@ impl ServerRun {
         Ok(Some(String::from_utf8_lossy(&buf).to_string()))
         //Ok(Some(String::from_utf8_lossy(&std::fs::read(self.log_path())?).to_string()))
     }
+}
+
+pub fn atomic_file_write(path: &Path, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let tempname = path.with_extension(format!("new-{:x}", rng.gen::<u64>()));
+    File::create(&tempname)?.write_all(bytes)?;
+    std::fs::rename(tempname, path)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -371,6 +426,23 @@ mod tests {
         assert!(run3.is_err(), "ServerRun::from_client_id() returned was {:?}", run3);
     }
 
+    #[test]
+    fn heartbeat_timeout() {
+        let db = test_dir();
+        let cmd = "echo a simple test";
+        let run = ServerRun::create(db.path().into(), "test-user", "David's The _absolute_ Greatest", None).expect("ServerRun create worked");
+        run.set_info(&ServerRunInfo{
+            cmd:    cmd.to_string(),
+            env:    vec![],
+            end:    None,
+            status: None,
+        }).expect("set_info worked");
+
+        atomic_file_write(&run.heartbeat_path(), "0".as_bytes()).expect("manually write old heartbeat");
+        let info = run.info().expect("got info");
+        assert_eq!(info.status, Some(serve::ExitStatus::ServerTimeout));
+    }
+
 
     //#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[tokio::test]
@@ -407,6 +479,31 @@ mod tests {
             assert_eq!(run.cmd, cmd);
             assert!(run.env.contains(&(MaybeUTF8::new(OsString::from("MY_ENV_VAR")), MaybeUTF8::new(OsString::from("some value")))));
             assert_eq!(run.log.expect("run.log"), "a simple test\n");
+
+            job.api.post("/shutdown", &[]).await.expect("POST /shutdown");
+        }).await.unwrap();
+        _serve.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn timeout() {
+        trace!("Testing");
+        let db = test_dir();
+        let cmd = "sleep 10";
+        let db_path = db.path().to_path_buf();
+        let _serve = tokio::spawn(async move { serve::serve(32924, db_path, true).await.unwrap(); });
+        let _client = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
+            let job = crate::job::ClientJob::new("http://127.0.0.1:32924/".parse().unwrap(), "test-user", "My Bad Job", None, Some(std::time::Duration::from_millis(1500)), cmd).await.unwrap();
+            job.run().await.expect("job ran");
+            assert_eq!(db.path().join("jobs").join("test-user").join("my-bad-job").join(&job.run_id).join("heartbeat").exists(), true);
+            //let _=std::process::Command::new("find").arg(db.path()).arg("-ls").status();
+            let info = serde_json::from_slice::<ServerRunInfo>(&std::fs::read(db.path().join("jobs").join("test-user").join("my-bad-job").join(&job.run_id).join("info"))
+                                                                             .expect("info file exists"))
+                                             .expect("Info file is valid json");
+            assert_eq!(info.cmd, "sleep 10");
+            assert_eq!(info.status, Some(serve::ExitStatus::ClientTimeout));
+            assert_eq!(db.path().join("jobs").join("test-user").join("my-bad-job").join(&job.run_id).join("log").exists(), false);
 
             job.api.post("/shutdown", &[]).await.expect("POST /shutdown");
         }).await.unwrap();

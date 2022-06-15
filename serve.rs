@@ -151,6 +151,13 @@ impl std::fmt::Display for OutKind {
     }
 }
 
+#[post("/run/<id>/heartbeat")]
+async fn run_heartbeat(conf: &State<Config>, id: u128) -> WebResult<()> {
+    let run = ServerRun::from_client_id(conf.db_path.clone().into(), id)?;
+    let _ = run.set_heartbeat();
+    Ok(())
+}
+
 #[post("/run/<id>/stdout", data="<data>")]
 async fn run_stdout(conf: &State<Config>, id: u128, data: String) -> WebResult<()> {
     run_stdio(conf, id, data, OutKind::Stdout).await
@@ -172,6 +179,8 @@ pub enum ExitStatus {
     Exited(i32),
     Signal(i32),
     CoreDump(i32),
+    ServerTimeout, // Server didn't get a heartbeat for some period of time
+    ClientTimeout, // Client hit timeout waiting for child to complete
 }
 
 #[post("/run/<id>/complete", data="<status>")]

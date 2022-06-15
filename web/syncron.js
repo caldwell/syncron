@@ -75,9 +75,11 @@ const svg = {
 
 function human_status(status) {
     return status == void 0     ? "..." :
-           'Exited'   in status ? `Exited with status ${status.Exited}`        :
-           'Signal'   in status ? `Killed with signal ${status.Signal}`        :
-           'CoreDump' in status ? `Dumped Core with signal ${status.CoreDump}` : "???";
+           'ServerTimeout' == status ? 'Timed out on server'                        :
+           'ClientTimeout' == status ? 'Timed out'                                  :
+           'Exited'        in status ? `Exited with status ${status.Exited}`        :
+           'Signal'        in status ? `Killed with signal ${status.Signal}`        :
+           'CoreDump'      in status ? `Dumped Core with signal ${status.CoreDump}` : "???";
 }
 
 function status_state(run) {
