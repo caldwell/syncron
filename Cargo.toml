@@ -29,6 +29,9 @@ comrak ="0.12"
 zip = "0.6"
 rand = "0.8.5"
 
+[dev-dependencies]
+simple_logger = { version = "2.2", default-features = false, features = [] }
+
 #[dev-dependencies]
 #matches = "0.1"
 #tokio-test = "*"

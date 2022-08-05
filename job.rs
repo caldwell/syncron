@@ -385,6 +385,10 @@ mod tests {
         }
     }
 
+    fn init_logging() {
+        simple_logger::SimpleLogger::new().init().unwrap();
+    }
+
     #[test]
     fn basic() {
         let db = test_dir();
