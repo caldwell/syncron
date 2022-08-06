@@ -18,7 +18,7 @@ const USAGE: &'static str = "
 Usage:
   syncron --help
   syncron -c <job-cmd>
-  syncron [-h] [-v...] exec -n <name> [-i <id>] [--timeout=<timespec>] [--server=<server-url>] <job-cmd>
+  syncron [-h] [-v...] exec (-n <name> | -i <id> | -n <name> -i <id>) [--timeout=<timespec>] [--server=<server-url>] <job-cmd>
   syncron [-h] [-v...] serve [--db=<path>] [--port=<port>]
 
 Options:
