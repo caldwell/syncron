@@ -22,6 +22,12 @@ p > code {
 #index {
     width: 15em;
 }
+dt {
+    padding-left: 2em;
+}
+dd {
+    padding-left: 4em;
+}
     </style>
   </head>
   <body>
