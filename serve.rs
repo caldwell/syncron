@@ -154,7 +154,7 @@ impl std::fmt::Display for OutKind {
 #[post("/run/<id>/heartbeat")]
 async fn run_heartbeat(conf: &State<Config>, sql: &SQLDb, id: u128) -> WebResult<()> {
     let run = db::Run::from_client_id(&sql, conf.db_path.clone().into(), id).await?;
-    let _ = run.set_heartbeat();
+    run.set_heartbeat().await?;
     Ok(())
 }
 
