@@ -79,8 +79,10 @@ fn utf8_or_bust(bytes: Vec<u8>, origin: &str) -> String {
 
 #[get("/docs/<file..>")]
 async fn docs(file: PathBuf) -> Option<(ContentType, String)> {
-    if let Some(_extension) = file.extension().and_then(|ext| ext.to_str()) {
-        return file_from_zip_or_fs(&Path::new("docs/").join(file));
+    if let Some(extension) = file.extension().and_then(|ext| ext.to_str()) {
+        if extension != "md" {
+            return file_from_zip_or_fs(&Path::new("docs/").join(file));
+        }
     }
     let template = file_from_zip_or_fs(&Path::new("web").join("docs.html.tera")).map(|(_,f)| f).unwrap_or("No template file???".into());
     let contents = file_from_zip_or_fs(&Path::new("docs").join("index.md")).map(|(_,f)| f).unwrap_or("No contents file???".into());
