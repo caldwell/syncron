@@ -19,6 +19,9 @@ p > code {
   background-color: #eee;
   padding: .28em .5em .15em;
 }
+#index {
+    width: 15em;
+}
     </style>
   </head>
   <body>
@@ -34,7 +37,7 @@ p > code {
     <div class="d-flex">
       <aside class="p-2 flex-shrink-1">
         <div class="container">
-          <div class="card">
+          <div id="index" class="card">
             <div class="card-header">
               Contents
             </div>
