@@ -10,22 +10,22 @@ use crate::serve;
 use crate::maybe_utf8::MaybeUTF8;
 
 #[derive(Debug)]
-pub struct ClientJob {
+pub struct Job {
     id:       String,
     timeout:  Option<std::time::Duration>,
     cmd:      String,
     api:      Api,
 }
 
-impl ClientJob {
-    pub async fn new(server_url: Url, user: &str, name: &str, id: Option<&str>, timeout: Option<std::time::Duration>, cmd: &str) -> Result<ClientJob, Box<dyn Error>> {
+impl Job {
+    pub async fn new(server_url: Url, user: &str, name: &str, id: Option<&str>, timeout: Option<std::time::Duration>, cmd: &str) -> Result<Job, Box<dyn Error>> {
         let mut env=vec![];
         for (k, v) in std::env::vars_os() {
             env.push((MaybeUTF8::new(k),MaybeUTF8::new(v)));
         }
         let api = Api::new(server_url)?;
         let resp: serve::CreateRunResp = serde_json::from_str(&api.post("/run/create", &serde_json::to_string(&serve::CreateRunReq{ user:user.to_string(), name:name.to_string(), id:id.map(|i|i.to_string()), cmd:cmd.to_string(), env:env })?.as_bytes()).await?)?;
-        Ok(ClientJob { id:resp.id, timeout:timeout, cmd:cmd.to_string(), api: api })
+        Ok(Job { id:resp.id, timeout:timeout, cmd:cmd.to_string(), api: api })
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn Error>> {
@@ -45,8 +45,8 @@ impl ClientJob {
 
         trace!("Spawned child {:?}", child);
 
-        let outpiper = ClientJob::copy_output(self.api.clone(), child.stdout.take().unwrap(), self.id.clone(), serve::OutKind::Stdout);
-        let errpiper = ClientJob::copy_output(self.api.clone(), child.stderr.take().unwrap(), self.id.clone(), serve::OutKind::Stderr);
+        let outpiper = Job::copy_output(self.api.clone(), child.stdout.take().unwrap(), self.id.clone(), serve::OutKind::Stdout);
+        let errpiper = Job::copy_output(self.api.clone(), child.stderr.take().unwrap(), self.id.clone(), serve::OutKind::Stderr);
         let pipers = async { tokio::join!(outpiper, errpiper) };
         let heartbeat = async {//|| -> Result<(), ()> {
             let now = std::time::Instant::now();
@@ -237,7 +237,7 @@ mod tests {
         let _serve = tokio::spawn(async move { serve::serve(32923, db_path, true).await.unwrap(); });
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
-            let job = crate::job::ClientJob::new("http://127.0.0.1:32923/".parse().unwrap(), "test-user", "My Job", Some("my-id"), None, cmd).await.unwrap();
+            let job = crate::client::Job::new("http://127.0.0.1:32923/".parse().unwrap(), "test-user", "My Job", Some("my-id"), None, cmd).await.unwrap();
             let log_path = sqlx::query!("SELECT log FROM run WHERE client_id = ?", job.id).fetch_one(&sql).await.expect("SELECT log FROM run").log;
             job.run().await.expect("job ran");
             assert_file_eq!(&db.path().join(&log_path), "a simple test\n");
@@ -272,7 +272,7 @@ mod tests {
         let _serve = tokio::spawn(async move { serve::serve(32924, db_path, true).await.unwrap(); });
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
-            let job = crate::job::ClientJob::new("http://127.0.0.1:32924/".parse().unwrap(), "test-user", "My Bad Job", None, Some(std::time::Duration::from_millis(1500)), cmd).await.unwrap();
+            let job = crate::client::Job::new("http://127.0.0.1:32924/".parse().unwrap(), "test-user", "My Bad Job", None, Some(std::time::Duration::from_millis(1500)), cmd).await.unwrap();
             let log_path = sqlx::query!("SELECT log FROM run WHERE client_id = ?", job.id).fetch_one(&sql).await.expect("SELECT log FROM run").log;
             job.run().await.expect("job ran");
             assert_eq!(db.path().join(&log_path).exists(), false);

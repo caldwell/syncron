@@ -9,7 +9,7 @@ use std::error::Error;
 
 use docopt::Docopt;
 
-mod job;
+mod client;
 mod serve;
 mod db;
 mod maybe_utf8;
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let job_cmd = if args.cmd_exec { args.arg_job_cmd } else { args.flag_c.unwrap() };
         let server = args.flag_server.ok_or("missing --server or SYNCRON_SERVER environment variable")?.parse()?;
         let name   = args.flag_name  .ok_or("missing --name or SYNCRON_NAME environment variable")?;
-        let job = job::ClientJob::new(server, &getuser(), &name, args.flag_job_id.as_deref(), args.flag_timeout.map(|s| parse_timespec(&s).unwrap()), &job_cmd).await?;
+        let job = client::Job::new(server, &getuser(), &name, args.flag_job_id.as_deref(), args.flag_timeout.map(|s| parse_timespec(&s).unwrap()), &job_cmd).await?;
         trace!("{:?}", job);
         job.run().await?;
     }
