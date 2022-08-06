@@ -103,3 +103,25 @@ web browser to get any new changes instead of rebuilding the app.
 
     cargo test
 
+
+License
+-------
+
+Copyright © 2022 David Caldwell <david_syncron@porkrind.org>
+
+*TLDR: [GPLv3](/docs/license.md). You can redistribute the binary (or a
+modified version) as long as you ship the source code used to build it
+alongside.*
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.

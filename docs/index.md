@@ -5,3 +5,4 @@
   - [Adding Jobs](/docs/adding-jobs.md)
 - Syncron Reference
   - [Syncron CLI](/docs/cli.md)
+  - [Software License](/docs/license.md)
