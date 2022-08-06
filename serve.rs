@@ -328,7 +328,7 @@ pub async fn serve(port: u16, db_path: PathBuf, enable_shutdown: bool) -> Result
         .merge(("port", port))
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"))
-        .merge(("databases.sqldb.url", db_path.join("syncron.sqlite3")))
+        .merge(("databases.sqldb.url", db_path.join("syncron.sqlite3?mode=rwc")))
         .merge(("db_path", db_path));
     let mut routes = routes![index, files, docs_index, docs,
                              run_create, run_heartbeat, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run];
