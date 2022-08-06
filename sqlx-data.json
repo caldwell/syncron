@@ -1,0 +1,421 @@
+{
+  "db": "SQLite",
+  "13e809eacb99368c1a56d2c11e40380a728d527622194adc4bfca34c13ede0cd": {
+    "describe": {
+      "columns": [
+        {
+          "name": "run_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Right": 6
+      }
+    },
+    "query": "INSERT INTO run (job_id, client_id, cmd, env, log, start) VALUES (?, ?, ?, ?, ?, ?) RETURNING run_id"
+  },
+  "1821d4b3d479732a7bb77e8bd31b6e0f4b2570f9e9f0d1afff758b524982a959": {
+    "describe": {
+      "columns": [
+        {
+          "name": "run_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "job_id",
+          "ordinal": 1,
+          "type_info": "Int64"
+        },
+        {
+          "name": "log",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "start",
+          "ordinal": 3,
+          "type_info": "Int64"
+        },
+        {
+          "name": "client_id",
+          "ordinal": 4,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Right": 2
+      }
+    },
+    "query": "SELECT run_id, job_id, log, start, client_id FROM run WHERE job_id = ? AND start = ?"
+  },
+  "22ee41e7f7aa20afb0282e2e9e2020465a154784a3293b91635bb1b5b13b4e54": {
+    "describe": {
+      "columns": [
+        {
+          "name": "run_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "start",
+          "ordinal": 1,
+          "type_info": "Int64"
+        },
+        {
+          "name": "end",
+          "ordinal": 2,
+          "type_info": "Int64"
+        },
+        {
+          "name": "status",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "client_id",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "log",
+          "ordinal": 5,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "SELECT r.run_id, r.start, r.end, r.status, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? ORDER BY r.start DESC"
+  },
+  "34d557c68de852de5efd9218367999bda4555b533d228e67558631c4aa1e322b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 3
+      }
+    },
+    "query": "INSERT INTO job (user_id, id, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING"
+  },
+  "4cc4a07945a2d35cf4a36cf91cb20e5d645e81a5af524e1eb0a16601831d9f8b": {
+    "describe": {
+      "columns": [
+        {
+          "name": "job_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "id",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "name",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "user",
+          "ordinal": 3,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Right": 0
+      }
+    },
+    "query": "SELECT j.job_id, j.id as id, j.name as name, u.name as user FROM job j JOIN user u ON u.user_id = j.user_id"
+  },
+  "50a192972dd8ef15a9cec9d9f9062fd2b315c7ec0a52dcb76f3bcc4fe95443e3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "cmd",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "env",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "end",
+          "ordinal": 2,
+          "type_info": "Int64"
+        },
+        {
+          "name": "status",
+          "ordinal": 3,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "SELECT cmd, env, end, status FROM run WHERE run_id = ?"
+  },
+  "5e728a426a79a856f09d89b3b19458af6eee336c0a8d7bd24aa92e6eca5c5066": {
+    "describe": {
+      "columns": [
+        {
+          "name": "job_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false
+      ],
+      "parameters": {
+        "Right": 2
+      }
+    },
+    "query": "SELECT j.job_id, j.name\n                                   FROM job j\n                                   JOIN user u ON u.user_id = j.user_id\n                                  WHERE u.name = ? AND j.id = ?"
+  },
+  "630e33c021daf8cbe398fc3b2cb615731d2d7a43b5cc5b7a9a73c71a525a39c3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "run_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "start",
+          "ordinal": 1,
+          "type_info": "Int64"
+        },
+        {
+          "name": "end",
+          "ordinal": 2,
+          "type_info": "Int64"
+        },
+        {
+          "name": "status",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "client_id",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "log",
+          "ordinal": 5,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "SELECT r.run_id, r.start, r.end, r.status, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? ORDER BY r.start DESC limit 1"
+  },
+  "78e0880847835a495da820f946efcd380156939f3a494d36dbf3c6f694720110": {
+    "describe": {
+      "columns": [
+        {
+          "name": "job_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Right": 2
+      }
+    },
+    "query": "SELECT job_id FROM job WHERE user_id = ? AND id = ?"
+  },
+  "8363b941c65de822adad62e3e0e1e6a7dcdb834d9c6a44959db0af456d9f865b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 3
+      }
+    },
+    "query": "UPDATE run SET status = ?, end = ?, client_id = NULL WHERE run_id = ?"
+  },
+  "8b35e9551e4412c0ea7dc432e7562e117dea12919308200e0a335b280acd7a30": {
+    "describe": {
+      "columns": [
+        {
+          "name": "heartbeat",
+          "ordinal": 0,
+          "type_info": "Int64"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "SELECT heartbeat FROM run WHERE run_id = ?"
+  },
+  "9a79e43055cb78dfdebfd5bab88831ecc035c34a2c30f3c1f574a1fcf93e8ef9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "run_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "job_id",
+          "ordinal": 1,
+          "type_info": "Int64"
+        },
+        {
+          "name": "log",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "start",
+          "ordinal": 3,
+          "type_info": "Int64"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "SELECT run_id, job_id, log, start FROM run WHERE client_id = ?"
+  },
+  "9d31cd5233bffab7f0be98fda2b100c67e01c4532975829277951f8b961a33d4": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "INSERT INTO user (name) VALUES (?) ON CONFLICT DO NOTHING"
+  },
+  "b956790ceacfc726398db2a772a9e454a0d42f02024f3e6408e419c0a49ec64d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "user_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "SELECT user_id FROM user WHERE name = ?"
+  },
+  "dea32ee040901ffcb9f3c26204898018ce89db3981e035d1e34ac1c86feefdb7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "job_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "user",
+          "ordinal": 2,
+          "type_info": "Text"
+        },
+        {
+          "name": "id",
+          "ordinal": 3,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Right": 1
+      }
+    },
+    "query": "SELECT j.job_id, j.name, u.name as user, j.id\n                                   FROM job j\n                                   JOIN user u ON u.user_id = j.user_id\n                                  WHERE j.job_id = ?"
+  },
+  "e871491477109062a803510fbc3d2fa099394241d6240989f7126bbfcb0d97ae": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Right": 2
+      }
+    },
+    "query": "UPDATE run SET heartbeat = ? WHERE run_id = ?"
+  }
+}
