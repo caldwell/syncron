@@ -1,8 +1,7 @@
 - Syncron Manual
   - [Overview](/docs/intro.md)
-    - [Subsection](/docs/intro.md#subsection)
-  - [Installing](/docs/install.md#Installing)
-  - [Configuring](/docs/install.md#Configuring)
+  - [Installing](/docs/intro.md#installing)
+  - [Configuring](/docs/intro.md#configuring)
   - [Adding Jobs](/docs/adding-jobs.md)
 - Syncron Reference
   - [Syncron CLI](/docs/cli.md)
