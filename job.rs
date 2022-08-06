@@ -132,6 +132,7 @@ impl Api {
             .send()
             .await?;
 
+        resp.error_for_status_ref()?;
         use std::os::unix::ffi::OsStringExt;
         trace!("API: {} <- {:?}", self.server.join(path)?, OsString::from_vec(body.to_vec()).to_string_lossy());
         Ok(resp.text().await?)
@@ -142,6 +143,7 @@ impl Api {
             .send()
             .await?;
 
+        resp.error_for_status_ref()?;
         let resp_str = resp.text().await?;
         trace!("API: {} -> {}", self.server.join(path)?, resp_str);
         Ok(resp_str)
