@@ -73,5 +73,5 @@ consecutive dashes get coalesced).
 This can become an issue if two job names differ only in capitalization,
 symbols, or whitespace. It is suggested to just make the names sufficiently
 different but if you are dead set on your naming conventions, you can set
-the id explicitly with the `SYNCRON_ID` environment variable (or `--id`
+the id explicitly with the `SYNCRON_JOB_ID` environment variable (or `--id`
 flag).
