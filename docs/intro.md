@@ -104,6 +104,27 @@ web browser to get any new changes instead of rebuilding the app.
     cargo test
 
 
+Todo
+----
+
+Syncron is prerelease code at the moment. I'm personally running it "in
+production" on a machine but I don't fully recommend it. I've tried my best
+to make it robust, but use at your own risk!
+
+Big features that are not implemented (in no particular order):
+
+- [ ] Progress bars with timing based on previous runs
+- [ ] A horizontal plot showing good/failed jobs a-la uptime robot
+- [ ] Hosts (it currently works fine across hosts, but the namespace is per
+      user instead of per host/user pair)
+- [ ] Renaming jobs from the web interface
+- [ ] Terminal UI a-la tig
+- [ ] Pruning old job runs, with configurable retention period
+- [ ] Job deletion
+- [ ] Authentication (currently anyone with access to the port can do
+      anything a client could do)
+- [ ] Alerting when important jobs fail. Web hook? Slack Post? Email?
+
 License
 -------
 

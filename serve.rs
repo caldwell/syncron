@@ -92,6 +92,7 @@ async fn docs(file: PathBuf) -> Option<(ContentType, String)> {
                                        let mut options = ComrakOptions::default();
                                        options.extension.header_ids = Some("".to_string());
                                        options.extension.description_lists = true;
+                                       options.extension.tasklist = true;
 
                                        let arena = Arena::new();
                                        let root = parse_document(&arena, &md, &options);
