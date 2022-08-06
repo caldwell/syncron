@@ -10,9 +10,15 @@ use rocket::serde::{Serialize, Deserialize, json::Json};
 use rocket::State;
 use rocket::fairing::AdHoc;
 
-use crate::job::{ServerJob,ServerRun,ServerRunInfo};
+use crate::job::{ServerJob,ServerRun};
 use crate::db::Db;
 use crate::maybe_utf8::MaybeUTF8;
+use crate::{wrap,wrap_str};
+
+use rocket_db_pools::{sqlx,Database};
+#[derive(Database)]
+#[database("sqldb")]
+struct SQLDb(sqlx::SqlitePool);
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(crate = "rocket::serde")]
@@ -129,14 +135,8 @@ pub struct CreateRunResp {
 }
 
 #[post("/run/create", data="<req>")]
-async fn run_create(conf: &State<Config>, req: Json<CreateRunReq>) -> WebResult<Json<CreateRunResp>> {
-    let run = ServerRun::create(conf.db_path.clone(), &req.user, &req.name, req.id.as_deref())?;
-    run.set_info(&ServerRunInfo{
-        cmd:    req.cmd.clone(),
-        env:    req.env.clone(),
-        end:    None,
-        status: None,
-    })?;
+async fn run_create(conf: &State<Config>, sql: &SQLDb, req: Json<CreateRunReq>) -> WebResult<Json<CreateRunResp>> {
+    let run = ServerRun::create(&sql, conf.db_path.clone(), &req.user, &req.name, req.id.as_deref(), req.cmd.clone(), req.env.clone()).await?;
     Ok(Json(CreateRunResp { id:format!("{}", run.client_id.unwrap()), job_id: run.job.id, run_id: run.run_id }))
 }
 
@@ -152,24 +152,24 @@ impl std::fmt::Display for OutKind {
 }
 
 #[post("/run/<id>/heartbeat")]
-async fn run_heartbeat(conf: &State<Config>, id: u128) -> WebResult<()> {
-    let run = ServerRun::from_client_id(conf.db_path.clone().into(), id)?;
+async fn run_heartbeat(conf: &State<Config>, sql: &SQLDb, id: u128) -> WebResult<()> {
+    let run = ServerRun::from_client_id(&sql, conf.db_path.clone().into(), id).await?;
     let _ = run.set_heartbeat();
     Ok(())
 }
 
 #[post("/run/<id>/stdout", data="<data>")]
-async fn run_stdout(conf: &State<Config>, id: u128, data: String) -> WebResult<()> {
-    run_stdio(conf, id, data, OutKind::Stdout).await
+async fn run_stdout(conf: &State<Config>, sql: &SQLDb, id: u128, data: String) -> WebResult<()> {
+    run_stdio(conf, sql, id, data, OutKind::Stdout).await
 }
 
 #[post("/run/<id>/stderr", data="<data>")]
-async fn run_stderr(conf: &State<Config>, id: u128, data: String) -> WebResult<()> {
-    run_stdio(conf, id, data, OutKind::Stderr).await
+async fn run_stderr(conf: &State<Config>, sql: &SQLDb, id: u128, data: String) -> WebResult<()> {
+    run_stdio(conf, sql, id, data, OutKind::Stderr).await
 }
 
-async fn run_stdio(conf: &State<Config>, id: u128, data: String, _kind: OutKind) -> WebResult<()> {
-    let run = ServerRun::from_client_id(conf.db_path.clone().into(), id)?;
+async fn run_stdio(conf: &State<Config>, sql: &SQLDb, id: u128, data: String, _kind: OutKind) -> WebResult<()> {
+    let run = ServerRun::from_client_id(&sql, conf.db_path.clone().into(), id).await?;
     run.add_stdout(&data)?;
     Ok(())
 }
@@ -184,9 +184,9 @@ pub enum ExitStatus {
 }
 
 #[post("/run/<id>/complete", data="<status>")]
-async fn run_complete(conf: &State<Config>, id: u128, status: Json<ExitStatus>) -> WebResult<()> {
-    let run = ServerRun::from_client_id(conf.db_path.clone().into(), id)?;
-    run.complete(*status)?;
+async fn run_complete(conf: &State<Config>, sql: &SQLDb, id: u128, status: Json<ExitStatus>) -> WebResult<()> {
+    let run = ServerRun::from_client_id(sql, conf.db_path.clone().into(), id).await?;
+    run.complete(*status).await?;
     Ok(())
 }
 
@@ -219,30 +219,32 @@ pub struct RunInfo {
 }
 
 #[get("/jobs")]
-async fn jobs(conf: &State<Config>) -> WebResult<Json<Vec<JobInfo>>> {
-    let db = Db::new(&conf.db_path.clone());
-    Ok(Json(db.jobs().map_err(|e| wrap(&*e, "jobs"))?.iter()
-            .map(|job| -> Result<JobInfo, Box<dyn Error>> {
-                (|| -> Result<JobInfo, Box<dyn Error>> {
-                    let latest_run = job.latest_run().map_err(|e| wrap(&*e, "latest_run"))?.unwrap();
+async fn jobs(conf: &State<Config>, sql: &SQLDb) -> WebResult<Json<Vec<JobInfo>>> {
+    let db = Db::new(&sql, &conf.db_path.clone());
+    use rocket::futures::stream::{self, StreamExt};
+    let jobs = ServerJob::jobs(&db).await.map_err(|e| wrap(&*e, "jobs"))?;
+    Ok(Json(stream::iter(jobs.iter())
+            .then(async move |job| -> Result<JobInfo, String> {
+                (async move |job: ServerJob| -> Result<JobInfo, String> {
+                    let latest_run = job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))?.unwrap();
                     Ok(JobInfo{ id:   job.id.clone(),
                                 user: job.user.clone(),
-                                name: job.name().map_err(|e| wrap(&*e, "name"))?.clone(),
+                                name: job.name.clone(),
                                 runs_url: uri!(get_runs(&job.user, &job.id)).to_string(),
                                 latest_run: RunInfo{
-                                    status: latest_run.info().map_err(|e| wrap(&*e, "info"))?.status,
-                                    progress: latest_run.progress().map_err(|e| wrap(&*e, "progress"))?,
+                                    status: latest_run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status,
+                                    progress: latest_run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
                                     date:     latest_run.date.timestamp(),
                                     id:       latest_run.run_id.clone(),
                                     log_len:  Some(latest_run.log_len()),
                                     url:      Some(uri!(get_run(&job.user, &job.id, latest_run.run_id, Option::<u64>::None)).to_string()),
                                 },
                     })
-                })().map_err(|e| wrap(&*e, &job.id))
-            }).filter_map(|ji| {
+                })(job.clone()).await.map_err(|e| format!("{}: {}", e, &job.id))
+            }).filter_map(async move |ji| {
                 if let Err(ref e) = ji { warn!("skipping job due to error: {}", e) }
                 ji.ok()
-            }).collect()))
+            }).collect().await))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -256,34 +258,33 @@ pub struct RunInfoFull {
     pub seek:     Option<u64>,
 }
 
-fn wrap<E: Error>(e: E, s: &str) -> Box<dyn Error> {
-    Box::<dyn Error>::from(format!("{}: {:?}", s, e))
-}
-
 #[get("/job/<user>/<job_id>/run")]
-async fn get_runs(conf: &State<Config>, user: &str, job_id: &str) -> WebResult<Json<Vec<RunInfo>>> {
-    let db = Db::new(&conf.db_path.clone());
-    let job = ServerJob::new(&db, user, job_id).map_err(|e| wrap(&*e, "ServerJob"))?;
-    Ok(Json(job.runs()?.into_iter().map(|run| -> Result<RunInfo, Box<dyn Error>> {
-        let info = run.info().map_err(|e| wrap(&*e, "info"))?;
+async fn get_runs(conf: &State<Config>, sql: &SQLDb, user: &str, job_id: &str) -> WebResult<Json<Vec<RunInfo>>> {
+    let db = Db::new(&sql, &conf.db_path.clone());
+    let job = ServerJob::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "ServerJob"))?;
+    use rocket::futures::stream::{self, StreamExt};
+    let jobs = job.runs().await?;
+    debug!("Got {} runs for {}", jobs.len(), job_id);
+    Ok(Json(stream::iter(jobs.into_iter()).then(async move |run| -> Result<RunInfo, String> {
+        let info = run.info().await.map_err(|e| wrap_str(&*e, "info"))?;
         Ok(RunInfo{
             status:   info.status,
-            progress: run.progress().map_err(|e| wrap(&*e, "progress"))?,
+            progress: run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
             date:     run.date.timestamp(),
             id:       run.run_id.clone(),
             log_len:  Some(run.log_len()),
-            url:      Some(uri!(get_run(&job.user, &job.id, run.run_id, Option::<u64>::None)).to_string()),
+            url:      Some(uri!(get_run(&run.job.user, &run.job.id, run.run_id, Option::<u64>::None)).to_string()),
         })
-    }).filter_map(|ri| ri.ok()).collect()))
+    }).filter_map(async move |ri| ri.ok()).collect().await))
 }
 
 #[get("/job/<user>/<job_id>/run/<run_id>?<seek>")]
-async fn get_run(conf: &State<Config>, user: &str, job_id: &str, run_id: &str, seek: Option<u64>) -> WebResult<Json<RunInfoFull>> {
-    let db = Db::new(&conf.db_path.clone());
+async fn get_run(conf: &State<Config>, sql: &SQLDb, user: &str, job_id: &str, run_id: &str, seek: Option<u64>) -> WebResult<Json<RunInfoFull>> {
+    let db = Db::new(&sql, &conf.db_path.clone());
     //Err(Debug(format!("This is a test")))?;
-    let job = ServerJob::new(&db, user, job_id).map_err(|e| wrap(&*e, "ServerJob"))?;
-    let run = job.run(run_id).map_err(|e| wrap(&*e, "run"))?;
-    let info = run.info().map_err(|e| wrap(&*e, "info"))?;
+    let job = ServerJob::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "ServerJob"))?;
+    let run = job.run(run_id).await.map_err(|e| wrap(&*e, "run"))?;
+    let info = run.info().await.map_err(|e| wrap(&*e, "info"))?;
     Ok(Json(RunInfoFull{
         run_info: RunInfo {
             status:   info.status,
@@ -306,12 +307,26 @@ fn shutdown(shutdown: rocket::Shutdown) -> &'static str {
     "Shutting down..."
 }
 
+async fn run_migrations(rocket: rocket::Rocket<rocket::Build>) -> rocket::fairing::Result {
+    match SQLDb::fetch(&rocket) {
+        Some(db) => match crate::db::MIGRATOR.run(&**db).await {
+            Ok(_) => Ok(rocket),
+            Err(e) => {
+                error!("Failed to initialize SQLx database: {}", e);
+                Err(rocket)
+            }
+        }
+        None => Err(rocket),
+    }
+}
+
 pub async fn serve(port: u16, db_path: PathBuf, enable_shutdown: bool) -> Result<(), Box<dyn std::error::Error>> {
     let figment = figment::Figment::from(rocket::Config::figment())
         .merge(("address", "0.0.0.0".parse::<std::net::IpAddr>().unwrap()))
         .merge(("port", port))
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"))
+        .merge(("databases.sqldb.url", db_path.join("syncron.sqlite3")))
         .merge(("db_path", db_path));
     let mut routes = routes![index, files, docs_index, docs,
                              run_create, run_heartbeat, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run];
@@ -319,6 +334,8 @@ pub async fn serve(port: u16, db_path: PathBuf, enable_shutdown: bool) -> Result
     let _rocket = rocket::custom(figment)
         .mount("/", routes)
         .attach(AdHoc::config::<Config>())
+        .attach(SQLDb::init())
+        .attach(AdHoc::try_on_ignite("SQLx Migrations", run_migrations))
         .launch().await?;
     Ok(())
 }

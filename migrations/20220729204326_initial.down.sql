@@ -1,0 +1,4 @@
+DROP TABLE Run;
+DROP TABLE Job;
+DROP TABLE User;
+
