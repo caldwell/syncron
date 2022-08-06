@@ -80,11 +80,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if args.cmd_exec || args.flag_c.is_some() {
         let job_cmd = if args.cmd_exec { args.arg_job_cmd } else { args.flag_c.unwrap() };
-        let server = args.flag_server.ok_or("missing --server or SYNCRON_SERVER environment variable")?.parse()?;
+        let server: reqwest::Url = args.flag_server.ok_or("missing --server or SYNCRON_SERVER environment variable")?.parse()?;
         let name   = args.flag_name  .ok_or("missing --name or SYNCRON_NAME environment variable")?;
-        let job = client::Job::new(server, &getuser(), &name, args.flag_job_id.as_deref(), args.flag_timeout.map(|s| parse_timespec(&s).unwrap()), &job_cmd).await?;
-        trace!("{:?}", job);
-        job.run().await?;
+        let timeout = args.flag_timeout.map(|s| parse_timespec(&s).unwrap());
+        let result = client::Job::new(server.clone(), &getuser(), &name, args.flag_job_id.as_deref(), timeout, &job_cmd).await.map_err(|e| e.to_string());
+        match result {
+            Ok(job) => {
+                trace!("{:?}", job);
+                job.run().await?;
+            },
+            Err(e) => {
+                warn!("Failed to connect to server {}: {}. Running job in fallback mode.", server, e);
+                client::fallback_run(timeout, &job_cmd).await?;
+            }
+        }
     }
 
     if args.cmd_serve {

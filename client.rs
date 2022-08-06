@@ -145,6 +145,62 @@ impl Api {
     }
 }
 
+pub async fn fallback_run(timeout: Option<std::time::Duration>, cmd: &str)  -> Result<(), Box<dyn Error>> {
+    // This is largely a copy+paste of Job::run(), above, but I don't know that it's worth it to abstract and de-duplicate.
+    use tokio::process::Command;
+
+    let shell = match (std::env::var("SYNCRON_SHELL"), std::env::var("SHELL"), std::env::args().nth(0)) {
+        (Ok(sh), _,      _)                    => sh,
+        (_,      Ok(sh), Some(me)) if sh != me => sh, // Prevent recursion
+        (_,      Ok(sh), None)                 => sh, // Probably will never happen
+        (_,      _,      _)                    => "/bin/sh".to_string(),
+    };
+    let mut child = Command::new(shell).args([OsString::from("-c"), OsString::from(&cmd)])
+        .stdin(std::process::Stdio::null())
+        .spawn()?;
+
+    trace!("Spawned child in fallback mode{:?}", child);
+
+    let heartbeat = async {
+        let now = std::time::Instant::now();
+        loop {
+            trace!("Waiting 1 second");
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if timeout.is_some() && now.elapsed() > timeout.unwrap() {
+                trace!("Timed out");
+                return Err(now.elapsed());
+            }
+        }
+        #[allow(unreachable_code)] Ok(()) // if I remove this, it errs.
+    };
+    loop {
+        tokio::select! {
+            status     = child.wait()    => {
+                match status {
+                    Err(e) => {
+                        error!("Child process failed: {}", e);
+                        Err(e)?;
+                        break;
+                    },
+                    Ok(status) => {
+                        trace!("Child exited with {}", status);
+                        if let Some(code) = status.code() {
+                            std::process::exit(code); // pass it on
+                        }
+                        break;
+                    }
+                }
+            },
+            Err(elapsed) = heartbeat => {
+                error!("Timeout reached after {:?}! Killing child {:?}", elapsed, child);
+                child.kill().await?;
+                break;
+            },
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
