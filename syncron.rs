@@ -98,8 +98,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     if args.cmd_serve {
         let db_path = args.flag_db.ok_or("missing --db or SYNCRON_DB environment variable")?;
-        let sql = sqlx::SqlitePool::connect(&format!("{}/{}", &db_path, "syncron.sqlite3")).await?;
-        crate::db::MIGRATOR.run(&sql).await.expect("migrate");
         let serve = async { serve::serve(args.flag_port, db_path.clone().into(), false).await.map_err(|e| format!("serve failed: {}", e)) };
         tokio::join!(serve).0?;
     }
