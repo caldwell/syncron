@@ -94,7 +94,7 @@ Client Options
 
 `--timeout=<timespec>`
 
-: Time out job if it runs too long. Timespec is '1s, 3m, 4h', etc.
+: Time out job if it runs too long. Timespec is `1s`, `3m`, `4h`, etc.
 
 `--server=<server-url>`, (env: `SYNCRON_SERVER`)
 
