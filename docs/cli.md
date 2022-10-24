@@ -47,7 +47,7 @@ Server Options
 `--port=<port>`, (env: `SYNCRON_PORT`)
 
 : Port to listen on. Defaults to `8000`.
-  `SYNCRON_PORT` environmnet variable.
+  `SYNCRON_PORT` environment variable.
 
 Client Mode
 -----------
