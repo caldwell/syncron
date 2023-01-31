@@ -145,7 +145,7 @@ pub struct CreateRunResp {
 #[post("/run/create", data="<req>")]
 #[tracing::instrument(name="POST /run/create", skip(conf,sql,req), fields(req.user=%&req.user,req.name=%&req.name,req.id=req.id.as_deref(),req.cmd=%&req.cmd), ret)]
 async fn run_create(conf: &State<Config>, sql: &SQLDb, req: Json<CreateRunReq>) -> WebResult<Json<CreateRunResp>> {
-    let run = db::Run::create(&sql, conf.db_path.clone(), &req.user, &req.name, req.id.as_deref(), req.cmd.clone(), req.env.clone()).await?;
+    let run = db::Run::create(&Db::new(&sql, &conf.db_path.clone()), &req.user, &req.name, req.id.as_deref(), req.cmd.clone(), req.env.clone()).await?;
     Ok(Json(CreateRunResp { id:format!("{}", run.client_id.unwrap()), job_id: run.job.id, run_id: run.run_id }))
 }
 
@@ -163,7 +163,7 @@ impl std::fmt::Display for OutKind {
 #[post("/run/<id>/heartbeat")]
 #[tracing::instrument(name="POST /run/<id>/heartbeat", skip(conf,sql), ret)]
 async fn run_heartbeat(conf: &State<Config>, sql: &SQLDb, id: u128) -> WebResult<()> {
-    let run = db::Run::from_client_id(&sql, conf.db_path.clone().into(), id).await?;
+    let run = db::Run::from_client_id(&Db::new(&sql, &conf.db_path.clone()), id).await?;
     run.set_heartbeat().await?;
     Ok(())
 }
@@ -186,7 +186,7 @@ async fn run_stderr(conf: &State<Config>, sql: &SQLDb, id: u128, data: String) -
 }
 
 async fn run_stdio(conf: &State<Config>, sql: &SQLDb, id: u128, data: String, _kind: OutKind) -> WebResult<()> {
-    let run = db::Run::from_client_id(&sql, conf.db_path.clone().into(), id).await?;
+    let run = db::Run::from_client_id(&Db::new(&sql, &conf.db_path.clone()), id).await?;
     run.add_stdout(&data)?;
     Ok(())
 }
@@ -203,7 +203,7 @@ pub enum ExitStatus {
 #[post("/run/<id>/complete", data="<status>")]
 #[tracing::instrument(name="POST /run/<id>/complete", skip(conf,sql), ret)]
 async fn run_complete(conf: &State<Config>, sql: &SQLDb, id: u128, status: Json<ExitStatus>) -> WebResult<()> {
-    let run = db::Run::from_client_id(sql, conf.db_path.clone().into(), id).await?;
+    let run = db::Run::from_client_id(&Db::new(&sql, &conf.db_path.clone()), id).await?;
     run.complete(*status).await?;
     Ok(())
 }

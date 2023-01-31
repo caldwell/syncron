@@ -166,8 +166,8 @@ impl Job {
 }
 
 impl Run {
-    pub async fn create(sql: &sqlx::SqlitePool, db: PathBuf, user: &str, name:&str, id:Option<&str>, cmd: String, env: Vec<(MaybeUTF8,MaybeUTF8)>) -> Result<Run, Box<dyn Error>> {
-        let job = Job::ensure(&Db::new(&sql, &db), user, name, id).await?;
+    pub async fn create(db: &Db, user: &str, name:&str, id:Option<&str>, cmd: String, env: Vec<(MaybeUTF8,MaybeUTF8)>) -> Result<Run, Box<dyn Error>> {
+        let job = Job::ensure(db, user, name, id).await?;
         let env_str = serde_json::to_string(&env)?;
         let date = chrono::Local::now();
         let start = date.timestamp_millis();
@@ -178,7 +178,7 @@ impl Run {
         getrandom::getrandom(&mut client_id_bytes)?;
         let client_id: u128 = u128::from_ne_bytes(client_id_bytes);
         let client_id_str = format!("{}", client_id);
-        let mut transaction = sql.begin().await?;
+        let mut transaction = db.sql().begin().await?;
         let run_db_id = sqlx::query!("INSERT INTO run (job_id, client_id, cmd, env, log, start) VALUES (?, ?, ?, ?, ?, ?) RETURNING run_id",
                                      job.job_id, client_id_str, cmd, env_str, log_str, start)
             .fetch_one(&mut transaction).await?.run_id;
@@ -188,9 +188,8 @@ impl Run {
         Ok(run)
     }
 
-    #[tracing::instrument(skip(sql, db_path),ret)]
-    pub async fn from_client_id(sql: &sqlx::SqlitePool, db_path: PathBuf, id: u128) -> Result<Run, Box<dyn Error>> {
-        let db = Db::new(sql, &db_path);
+    #[tracing::instrument(skip(db),ret)]
+    pub async fn from_client_id(db: &Db, id: u128) -> Result<Run, Box<dyn Error>> {
         let client_id_str = format!("{}",id);
         trace!("looking for {}", client_id_str);
         let run = sqlx::query!("SELECT run_id, job_id, log, start FROM run WHERE client_id = ?", client_id_str)
