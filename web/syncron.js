@@ -75,8 +75,8 @@ const svg = {
 
 function human_status(status) {
     return status == void 0     ? "..." :
-           'ServerTimeout' == status ? 'Timed out on server'                        :
-           'ClientTimeout' == status ? 'Timed out'                                  :
+           'ServerTimeout' == status ? 'Timeout: Client disappeared'                :
+           'ClientTimeout' == status ? 'Timeout: Job took too long'                 :
            'Exited'        in status ? `Exited with status ${status.Exited}`        :
            'Signal'        in status ? `Killed with signal ${status.Signal}`        :
            'CoreDump'      in status ? `Dumped Core with signal ${status.CoreDump}` : "???";
