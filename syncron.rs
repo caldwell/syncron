@@ -64,19 +64,30 @@ async fn main() -> Result<(), Box<dyn Error>> {
     env_if("SYNCRON_PORT",   |s| Ok(args.flag_port   = s.parse::<u16>()?))?;
     env_if("SYNCRON_DB",     |s| Ok(args.flag_db     = Some(s.into())))?;
 
-    stderrlog::new()
-        .verbosity(log::LevelFilter::Warn as usize - 1 + args.flag_verbose)
-        .color(stderrlog::ColorChoice::Always)
-        .show_level(true)
-        .timestamp(stderrlog::Timestamp::Second)
-        .module(module_path!())
-        .module("reqwest")
-        .module("rocket")
-        .module("_") // part of rocket??
-        .show_module_names(true)
-        .init()?;
+    use tracing_subscriber::fmt::format::FmtSpan;
+    let (env_filter, span_events) = match args.flag_verbose {
+        0   => ("warn",                                        FmtSpan::NONE,                  ),
+        1   => ("warn,syncron=info",                           FmtSpan::NONE,                  ),
+        2   => ("warn,syncron=debug",                          FmtSpan::NONE,                  ),
+        3   => ("warn,syncron=trace",                          FmtSpan::NONE,                  ),
+        4   => ("warn,syncron=trace",                          FmtSpan::NEW | FmtSpan::CLOSE,  ),
+        5   => ("warn,syncron=trace,rocket=trace",             FmtSpan::NEW | FmtSpan::CLOSE,  ),
+        6   => ("warn,syncron=trace,rocket=trace,hyper=debug", FmtSpan::NEW | FmtSpan::CLOSE,  ),
+        7.. => ("trace",                                       FmtSpan::NEW | FmtSpan::CLOSE,  ),
+        _ => todo!(),
+    };
 
-    debug!("args={:?}", args);
+    tracing_subscriber::fmt()
+        .with_env_filter(env_filter)
+        .with_span_events(span_events)
+        .with_timer(tracing_subscriber::fmt::time::LocalTime::new(time::macros::format_description!("")))
+        .with_ansi(true)
+        .compact()
+        .with_writer(std::io::stderr)
+        .with_level(true)
+        .init();
+
+    tracing::debug!("args={:?}", args);
 
     if args.cmd_exec || args.flag_c.is_some() {
         let job_cmd = if args.cmd_exec { args.arg_job_cmd } else { args.flag_c.unwrap() };

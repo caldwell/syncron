@@ -35,11 +35,13 @@ impl Default for Config {
 type WebResult<T, E = Debug<Box<dyn Error>>> = std::result::Result<T, E>; // What is this magic??
 
 #[get("/")]
+#[tracing::instrument(name="GET /")]
 async fn index() -> Option<(ContentType, String)> {
     files("index.html".into()).await
 }
 
 #[get("/<file..>")]
+#[tracing::instrument(name="GET /<file..>")]
 async fn files(file: PathBuf) -> Option<(ContentType, String)> {
     file_from_zip_or_fs(&Path::new("web/").join(file))
 }
@@ -68,6 +70,7 @@ fn extract_from_exe_zip(file: &Path) -> Result<String, Box<dyn Error>> {
 }
 
 #[get("/docs")]
+#[tracing::instrument(name="GET /docs")]
 async fn docs_index() -> Redirect {
     Redirect::to(uri!(docs("intro")))
 }
@@ -78,6 +81,7 @@ fn utf8_or_bust(bytes: Vec<u8>, origin: &str) -> String {
 }
 
 #[get("/docs/<file..>")]
+#[tracing::instrument(name="GET /docs/<file..>")]
 async fn docs(file: PathBuf) -> Option<(ContentType, String)> {
     if let Some(extension) = file.extension().and_then(|ext| ext.to_str()) {
         if extension != "md" {
@@ -139,6 +143,7 @@ pub struct CreateRunResp {
 }
 
 #[post("/run/create", data="<req>")]
+#[tracing::instrument(name="POST /run/create", skip(conf,sql,req), fields(req.user=%&req.user,req.name=%&req.name,req.id=req.id.as_deref(),req.cmd=%&req.cmd), ret)]
 async fn run_create(conf: &State<Config>, sql: &SQLDb, req: Json<CreateRunReq>) -> WebResult<Json<CreateRunResp>> {
     let run = db::Run::create(&sql, conf.db_path.clone(), &req.user, &req.name, req.id.as_deref(), req.cmd.clone(), req.env.clone()).await?;
     Ok(Json(CreateRunResp { id:format!("{}", run.client_id.unwrap()), job_id: run.job.id, run_id: run.run_id }))
@@ -156,18 +161,26 @@ impl std::fmt::Display for OutKind {
 }
 
 #[post("/run/<id>/heartbeat")]
+#[tracing::instrument(name="POST /run/<id>/heartbeat", skip(conf,sql), ret)]
 async fn run_heartbeat(conf: &State<Config>, sql: &SQLDb, id: u128) -> WebResult<()> {
     let run = db::Run::from_client_id(&sql, conf.db_path.clone().into(), id).await?;
     run.set_heartbeat().await?;
     Ok(())
 }
 
+
+fn short_data(data: &str) -> String {
+    format!("[{}]{}...", data.len(), data.get(0..10.min(data.len())).unwrap_or(r"¯\_(ツ)_/¯"))
+}
+
 #[post("/run/<id>/stdout", data="<data>")]
+#[tracing::instrument(name="POST /run/<id>/stdout", skip(conf,sql,data), fields(data=%short_data(&data)))]
 async fn run_stdout(conf: &State<Config>, sql: &SQLDb, id: u128, data: String) -> WebResult<()> {
     run_stdio(conf, sql, id, data, OutKind::Stdout).await
 }
 
 #[post("/run/<id>/stderr", data="<data>")]
+#[tracing::instrument(name="POST /run/<id>/stderr", skip(conf,sql,data), fields(data=%short_data(&data)))]
 async fn run_stderr(conf: &State<Config>, sql: &SQLDb, id: u128, data: String) -> WebResult<()> {
     run_stdio(conf, sql, id, data, OutKind::Stderr).await
 }
@@ -188,6 +201,7 @@ pub enum ExitStatus {
 }
 
 #[post("/run/<id>/complete", data="<status>")]
+#[tracing::instrument(name="POST /run/<id>/complete", skip(conf,sql), ret)]
 async fn run_complete(conf: &State<Config>, sql: &SQLDb, id: u128, status: Json<ExitStatus>) -> WebResult<()> {
     let run = db::Run::from_client_id(sql, conf.db_path.clone().into(), id).await?;
     run.complete(*status).await?;
@@ -223,6 +237,7 @@ pub struct RunInfo {
 }
 
 #[get("/jobs")]
+#[tracing::instrument(name="GET /jobs", skip(conf,sql))]
 async fn jobs(conf: &State<Config>, sql: &SQLDb) -> WebResult<Json<Vec<JobInfo>>> {
     let db = Db::new(&sql, &conf.db_path.clone());
     use rocket::futures::stream::{self, StreamExt};
@@ -263,6 +278,7 @@ pub struct RunInfoFull {
 }
 
 #[get("/job/<user>/<job_id>/run")]
+#[tracing::instrument(name="GET /job/<user>/<job_id>/run", skip(conf,sql))]
 async fn get_runs(conf: &State<Config>, sql: &SQLDb, user: &str, job_id: &str) -> WebResult<Json<Vec<RunInfo>>> {
     let db = Db::new(&sql, &conf.db_path.clone());
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
@@ -283,6 +299,7 @@ async fn get_runs(conf: &State<Config>, sql: &SQLDb, user: &str, job_id: &str) -
 }
 
 #[get("/job/<user>/<job_id>/run/<run_id>?<seek>")]
+#[tracing::instrument(name="GET /job/<user>/<job_id>/run/<run_id>?<seek>", skip(conf,sql))]
 async fn get_run(conf: &State<Config>, sql: &SQLDb, user: &str, job_id: &str, run_id: &str, seek: Option<u64>) -> WebResult<Json<RunInfoFull>> {
     let db = Db::new(&sql, &conf.db_path.clone());
     //Err(Debug(format!("This is a test")))?;
@@ -306,6 +323,7 @@ async fn get_run(conf: &State<Config>, sql: &SQLDb, user: &str, job_id: &str, ru
 }
 
 #[post("/shutdown")]
+#[tracing::instrument(name="POST /shutdown", skip_all)]
 fn shutdown(shutdown: rocket::Shutdown) -> &'static str {
     shutdown.notify();
     "Shutting down..."

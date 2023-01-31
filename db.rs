@@ -74,6 +74,7 @@ async fn user_id(db: &Db, user: &str) -> Result<i64, Box<dyn Error>> {
 }
 
 impl Job {
+    #[tracing::instrument(skip(db),ret)]
     pub async fn ensure(db: &Db, user: &str, name: &str, id: Option<&str>) -> Result<Job, Box<dyn Error>> {
         let id = id.unwrap_or(&slug(name)).to_owned();
         if user.is_empty() || user.contains("/") || user.starts_with(".") { Err(format!("Bad user"))? }
@@ -187,6 +188,7 @@ impl Run {
         Ok(run)
     }
 
+    #[tracing::instrument(skip(sql, db_path),ret)]
     pub async fn from_client_id(sql: &sqlx::SqlitePool, db_path: PathBuf, id: u128) -> Result<Run, Box<dyn Error>> {
         let db = Db::new(sql, &db_path);
         let client_id_str = format!("{}",id);
@@ -261,6 +263,7 @@ impl Run {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self),ret)]
     pub async fn set_heartbeat(&self) -> Result<(), Box<dyn Error>> {
         let heartbeat = Some(chrono::Local::now().timestamp_millis());
         info!("Run [{}] {}/{}/{} Set heartbeat: {:?}", self.run_db_id, self.job.user, self.job.name, self.run_id, heartbeat);
@@ -272,6 +275,7 @@ impl Run {
         sqlx::query!("SELECT heartbeat FROM run WHERE run_id = ?", self.run_db_id).fetch_one(self.job.db.sql()).await?.heartbeat.ok_or("Missing hearbeat".into())
     }
 
+    #[tracing::instrument(skip(self),ret)]
     pub async fn complete(&self, status: serve::ExitStatus) -> Result<(), Box<dyn Error>> {
         let end = Some(chrono::Local::now().timestamp_millis());
         let status = Some(serde_json::to_string(&status)?);
