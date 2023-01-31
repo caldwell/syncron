@@ -5,7 +5,7 @@ use std::ffi::OsString;
 use std::os::unix::process::ExitStatusExt;
 
 use reqwest::{header,Url};
-use reqwest::header::ACCEPT;
+use reqwest::header::{CONTENT_TYPE, ACCEPT};
 
 use crate::serve;
 use crate::maybe_utf8::MaybeUTF8;
@@ -124,6 +124,7 @@ impl Api {
     pub async fn post(&self, path: &str, body: &[u8]) -> Result<String, Box<dyn Error>> {
         let bod: Vec<u8> = body.into();
         let resp = self.ua.post(self.server.join(path)?)
+            .header(CONTENT_TYPE, "application/json")
             .body(bod)
             .send()
             .await?;
