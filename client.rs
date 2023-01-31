@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::os::unix::process::ExitStatusExt;
 
 use reqwest::{header,Url};
+use reqwest::header::ACCEPT;
 
 use crate::serve;
 use crate::maybe_utf8::MaybeUTF8;
@@ -108,7 +109,7 @@ pub struct Api {
 impl Api {
     fn new(server_url: Url) -> Result<Api, Box<dyn Error>> {
         let mut fake_browser_headers = header::HeaderMap::new();
-        fake_browser_headers.insert("accept",           header::HeaderValue::from_static("application/json"));
+        fake_browser_headers.insert(ACCEPT, header::HeaderValue::from_static("application/json"));
         let client = reqwest::Client::builder()
             .connection_verbose(true)
             .default_headers(fake_browser_headers)
