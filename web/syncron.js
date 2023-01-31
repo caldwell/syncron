@@ -246,6 +246,22 @@ function log_view({run_url, job}) {
         }
     });
 
+    let ansi_to_html = (text) =>
+        (text||"").split(/\x1b[[]([\d,;]+)m/).reduce((memo, s, i) => {
+            if (i == 0)// || (i % 2 == 1) && s == "0")
+                memo.push(['span']);
+            if ((i % 2 == 1) && s == "0") {
+                memo.push(['span']);
+                return memo;
+            }
+            if (i % 2 == 1)
+                memo.push(['span', { className: s.split(/[;,]/).map(c=>`ansi-${Number(c)}`).join(' ') }]);
+            else
+                memo[memo.length-1].push(s);
+            return memo
+        }, [])
+    ;
+
     return jsr(card("log-view",
                     [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${run ? localiso(run.date) : "…"}`],
                     !run ? [loading]
@@ -255,6 +271,6 @@ function log_view({run_url, job}) {
                              ["table",
                               ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
                             ["h2", "Output:"],
-                            ["pre", run.log, "\n", status == 'Running' ? ["div", { className: "dot-flashing" }] : human_status(run.status)]
+                            ["pre", ansi_to_html(run.log), "\n", status == 'Running' ? ["div", { className: "dot-flashing" }] : human_status(run.status)]
                            ]));
 }

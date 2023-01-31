@@ -1,0 +1,57 @@
+.ansi-1   { font-weight: bold; }             // term.attr.bold = true,
+.ansi-2   { opacity: .6; }                   // term.attr.faint = true,
+.ansi-3   { font-style: italic; }            // term.attr.italic = true,
+.ansi-4   { text-decoration: underline; }    // term.attr.underline = true,
+.ansi-5,                                     // term.attr.blink = Blink::Slow,
+.ansi-6   { text-decoration: blink; }        // term.attr.blink = Blink::Fast,
+.ansi-7   { }                                // term.attr.inverse = true,
+.ansi-8   { visibility: hidden; }            // term.attr.conceal = true,
+.ansi-9   { text-decoration: line-through; } // term.attr.strikethrough = true,
+.ansi-30  { color: rgb(0, 0, 0);      }
+.ansi-31  { color: rgb(194, 54, 33);  }
+.ansi-32  { color: rgb(37, 188, 36);  }
+.ansi-33  { color: rgb(173, 173, 39); }
+.ansi-34  { color: rgb(73, 46, 225);  }
+.ansi-35  { color: rgb(211, 56, 211); }
+.ansi-36  { color: rgb(51, 187, 200); }
+.ansi-37  { color: rgb(203, 204, 205);}
+.ansi-90  { color: rgb(129, 131, 131);}
+.ansi-91  { color: rgb(252,57,31);    }
+.ansi-92  { color: rgb(49, 231, 34);  }
+.ansi-93  { color: rgb(234, 236, 35); }
+.ansi-94  { color: rgb(88, 51, 255);  }
+.ansi-95  { color: rgb(249, 53, 248); }
+.ansi-96  { color: rgb(20, 240, 240); }
+.ansi-97  { color: rgb(233, 235, 235);}
+.ansi-40  { background-color: rgb(0, 0, 0);      }
+.ansi-41  { background-color: rgb(194, 54, 33);  }
+.ansi-42  { background-color: rgb(37, 188, 36);  }
+.ansi-43  { background-color: rgb(173, 173, 39); }
+.ansi-44  { background-color: rgb(73, 46, 225);  }
+.ansi-45  { background-color: rgb(211, 56, 211); }
+.ansi-46  { background-color: rgb(51, 187, 200); }
+.ansi-47  { background-color: rgb(203, 204, 205);}
+.ansi-100 { background-color: rgb(129, 131, 131);}
+.ansi-101 { background-color: rgb(252,57,31);    }
+.ansi-102 { background-color: rgb(49, 231, 34);  }
+.ansi-103 { background-color: rgb(234, 236, 35); }
+.ansi-104 { background-color: rgb(88, 51, 255);  }
+.ansi-105 { background-color: rgb(249, 53, 248); }
+.ansi-106 { background-color: rgb(20, 240, 240); }
+.ansi-107 { background-color: rgb(233, 235, 235);}
+
+// Todo: do the full 256 color. Above colors +:
+// // Plus a 6 sided RGB cube
+// for r in 0..6 {
+//     for g in 0..6 {
+//         for b in 0..6 {
+//             ansi_256color.push(rgb(r*(255u8/5u8), g*(255/5), b*(255/5)));
+//         }
+//     }
+// }
+
+// // Plus a ramp from black to white but not including either black or white.
+// for l in 0..(26i32-2) {
+//     let lum = (l+1)*255/26;
+//     ansi_256color.push(rgb(lum as u8,lum as u8,lum as u8));
+// }
