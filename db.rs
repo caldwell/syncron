@@ -17,6 +17,9 @@ impl Db {
                                                 sql: sql.clone(), } }
     pub fn sql(&self)               -> &sqlx::SqlitePool { &self.sql }
     pub fn jobs_path(&self)         -> PathBuf { self.db_path.join("jobs") }
+    pub async fn migrate(&self)     -> Result<(), Box<dyn Error>> {
+        MIGRATOR.run(&self.sql).await.map_err(|e| wrap(&e, "Failed to initialize SQLx database"))
+    }
 }
 
 
