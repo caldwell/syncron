@@ -208,11 +208,12 @@ mod tests {
     use super::*;
     use crate::db;
 
-    async fn test_db() -> (sqlx::SqlitePool, tempfile::TempDir) {
+    async fn test_db() -> (db::Db, tempfile::TempDir) {
         let db_path = tempfile::Builder::new().prefix("syncron-test").tempdir().unwrap();
         let sql = sqlx::SqlitePool::connect(&format!("{}/{}?mode=rwc", &db_path.path().to_string_lossy(), "syncron.sqlite3")).await.unwrap();
         crate::db::MIGRATOR.run(&sql).await.expect("migrate");
-        (sql, db_path)
+        let db = db::Db::new(&sql, db_path.path());
+        (db, db_path)
     }
 
     impl PartialEq for db::Job {
@@ -249,18 +250,18 @@ mod tests {
 
     #[tokio::test]
     async fn basic() {
-        let (sql, db) = test_db().await;
+        let (db, db_path) = test_db().await;
         let cmd = "echo a simple test";
         let env = vec![
             (MaybeUTF8::new(OsString::from("PATH")),            MaybeUTF8::new(OsString::from("Something:something_else/"))),
             (MaybeUTF8::new(OsString::from("HOME")),            MaybeUTF8::new(OsString::from("/home/my-home-dir"))),
             (MaybeUTF8::new(OsString::from("SOMETHING WACKY")), MaybeUTF8::new(OsString::from("Oh\nDear"))),
         ];
-        let run = db::Run::create(&sql, db.path().into(), "test-user", "David's The _absolute_ Greatest", None, cmd.to_string(), env).await.expect("db::Run create worked");
+        let run = db::Run::create(&db, "test-user", "David's The _absolute_ Greatest", None, cmd.to_string(), env).await.expect("db::Run create worked");
         assert_eq!(run.job.id, "david-s-the-absolute-greatest");
 
         let id = run.client_id.expect("got client_id");
-        let mut run2 = db::Run::from_client_id(&sql, db.path().into(), id).await.expect("db::Run::from_client_id()");
+        let mut run2 = db::Run::from_client_id(&db, id).await.expect("db::Run::from_client_id()");
         assert!(run.date - run2.date < chrono::Duration::milliseconds(1000), "Dates are less close than expected {} vs {}", run.date, run2.date);
         run2.date = run.date;
         assert_eq!(run, run2);
@@ -269,36 +270,36 @@ mod tests {
         run2.add_stdout("Even more text.\n").expect("even more text added");
         run2.complete(serve::ExitStatus::Exited(0)).await.expect("completed with no errors");
 
-        assert_file_eq!(&db.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest").join(&run.run_id).join("log"), "Some text. Some more text.\nEven more text.\n");
+        assert_file_eq!(&db_path.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest").join(&run.run_id).join("log"), "Some text. Some more text.\nEven more text.\n");
 
-        let run3 = db::Run::from_client_id(&sql, db.path().into(), id).await;
+        let run3 = db::Run::from_client_id(&db, id).await;
         assert!(run3.is_err(), "db::Run::from_client_id() returned was {:?}", run3);
     }
 
     #[tokio::test]
     async fn heartbeat_timeout() {
-        let (sql, db) = test_db().await;
+        let (db, db_path) = test_db().await;
         let cmd = "echo a simple test";
-        let run = db::Run::create(&sql, db.path().into(), "test-user", "David's The _absolute_ Greatest", None, cmd.to_string(), vec![]).await.expect("db::Run create worked");
+        let run = db::Run::create(&db, "test-user", "David's The _absolute_ Greatest", None, cmd.to_string(), vec![]).await.expect("db::Run create worked");
 
-        sqlx::query!("UPDATE run SET heartbeat = 0 WHERE run_id = ?", run.run_db_id).execute(&sql).await.expect("update run set heartbeat");
+        sqlx::query!("UPDATE run SET heartbeat = 0 WHERE run_id = ?", run.run_db_id).execute(db.sql()).await.expect("update run set heartbeat");
         let info = run.info().await.expect("got info");
         assert_eq!(info.status, Some(serve::ExitStatus::ServerTimeout));
     }
 
     #[tokio::test]
     async fn integration() {
-        let (sql, db) = test_db().await;
+        let (db, db_path) = test_db().await;
         let cmd = "echo a simple test";
         std::env::set_var("MY_ENV_VAR", "some value");
-        let db_path = db.path().to_path_buf();
-        let _serve = tokio::spawn(async move { serve::serve(32923, db_path, true).await.unwrap(); });
+        let db_path = db_path.path().to_path_buf();
+        let _serve = tokio::spawn({ let db_path = db_path.clone(); async move { serve::serve(32923, db_path, true).await.unwrap(); }});
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
             let job = crate::client::Job::new("http://127.0.0.1:32923/".parse().unwrap(), "test-user", "My Job", Some("my-id"), None, cmd).await.unwrap();
-            let log_path = sqlx::query!("SELECT log FROM run WHERE client_id = ?", job.id).fetch_one(&sql).await.expect("SELECT log FROM run").log;
+            let log_path = sqlx::query!("SELECT log FROM run WHERE client_id = ?", job.id).fetch_one(db.sql()).await.expect("SELECT log FROM run").log;
             job.run().await.expect("job ran");
-            assert_file_eq!(&db.path().join(&log_path), "a simple test\n");
+            assert_file_eq!(&db_path.join(&log_path), "a simple test\n");
 
             let jobs: Vec<serve::JobInfo> = serde_json::from_str(&job.api.get("/jobs").await.expect("GET /jobs")).expect("GET /jobs parse");
             assert_eq!(jobs.len(),   1);
@@ -324,16 +325,16 @@ mod tests {
     #[tokio::test]
     async fn timeout() {
         trace!("Testing");
-        let (sql, db) = test_db().await;
+        let (db, db_path) = test_db().await;
         let cmd = "sleep 10";
-        let db_path = db.path().to_path_buf();
-        let _serve = tokio::spawn(async move { serve::serve(32924, db_path, true).await.unwrap(); });
+        let db_path = db_path.path().to_path_buf();
+        let _serve = tokio::spawn({ let db_path = db_path.clone(); async move { serve::serve(3292, db_path, true).await.unwrap()} });
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
             let job = crate::client::Job::new("http://127.0.0.1:32924/".parse().unwrap(), "test-user", "My Bad Job", None, Some(std::time::Duration::from_millis(1500)), cmd).await.unwrap();
-            let log_path = sqlx::query!("SELECT log FROM run WHERE client_id = ?", job.id).fetch_one(&sql).await.expect("SELECT log FROM run").log;
+            let log_path = sqlx::query!("SELECT log FROM run WHERE client_id = ?", job.id).fetch_one(db.sql()).await.expect("SELECT log FROM run").log;
             job.run().await.expect("job ran");
-            assert_eq!(db.path().join(&log_path).exists(), false);
+            assert_eq!(db_path.join(&log_path).exists(), false);
 
             job.api.post("/shutdown", &[]).await.expect("POST /shutdown");
         }).await.unwrap();
