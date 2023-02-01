@@ -12,9 +12,22 @@ pub struct Db {
 }
 
 impl Db {
-    pub fn new(sql: &sqlx::SqlitePool,
-               db_path: &Path)      -> Db { Db{ db_path:db_path.into(),
-                                                sql: sql.clone(), } }
+    pub async fn new(db_path: &Path) -> Result<Db, Box<dyn Error>> {
+        let pool = sqlx::pool::PoolOptions::new()
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .max_connections(500)
+            .idle_timeout(Some(std::time::Duration::from_secs(5*60)))
+            .connect_with(sqlx::sqlite::SqliteConnectOptions::new()
+                          .filename(db_path.join("syncron.sqlite3"))
+                          .create_if_missing(true)
+                          .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal) // Should be the default but lets be explicit
+                          .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)).await?; // Dont constantly sync(). Makes writes faster on a shared disk.
+        let db = Db{ db_path: db_path.into(),
+                     sql: pool, };
+        db.migrate().await?;
+        Ok(db)
+    }
+
     pub fn sql(&self)               -> &sqlx::SqlitePool { &self.sql }
     pub fn jobs_path(&self)         -> PathBuf { self.db_path.join("jobs") }
     pub async fn migrate(&self)     -> Result<(), Box<dyn Error>> {

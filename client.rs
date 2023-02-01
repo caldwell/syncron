@@ -210,9 +210,7 @@ mod tests {
 
     async fn test_db() -> (db::Db, tempfile::TempDir) {
         let db_path = tempfile::Builder::new().prefix("syncron-test").tempdir().unwrap();
-        let sql = sqlx::SqlitePool::connect(&format!("{}/{}?mode=rwc", &db_path.path().to_string_lossy(), "syncron.sqlite3")).await.unwrap();
-        crate::db::MIGRATOR.run(&sql).await.expect("migrate");
-        let db = db::Db::new(&sql, db_path.path());
+        let db = db::Db::new(&db_path.path()).await.expect(&format!("Create db in {}", db_path.path().to_string_lossy()));
         (db, db_path)
     }
 
@@ -293,7 +291,7 @@ mod tests {
         let cmd = "echo a simple test";
         std::env::set_var("MY_ENV_VAR", "some value");
         let db_path = db_path.path().to_path_buf();
-        let _serve = tokio::spawn({ let db_path = db_path.clone(); async move { serve::serve(32923, db_path, true).await.unwrap(); }});
+        let _serve = tokio::spawn({ let db = db.clone(); async move { serve::serve(32923, &db, true).await.unwrap(); }});
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
             let job = crate::client::Job::new("http://127.0.0.1:32923/".parse().unwrap(), "test-user", "My Job", Some("my-id"), None, cmd).await.unwrap();
@@ -328,7 +326,7 @@ mod tests {
         let (db, db_path) = test_db().await;
         let cmd = "sleep 10";
         let db_path = db_path.path().to_path_buf();
-        let _serve = tokio::spawn({ let db_path = db_path.clone(); async move { serve::serve(3292, db_path, true).await.unwrap()} });
+        let _serve = tokio::spawn({let db = db.clone(); async move { serve::serve(32924, &db, true).await.unwrap(); }});
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
             let job = crate::client::Job::new("http://127.0.0.1:32924/".parse().unwrap(), "test-user", "My Bad Job", None, Some(std::time::Duration::from_millis(1500)), cmd).await.unwrap();

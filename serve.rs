@@ -308,19 +308,7 @@ fn shutdown(shutdown: rocket::Shutdown) -> &'static str {
     "Shutting down..."
 }
 
-pub async fn serve(port: u16, db_path: PathBuf, enable_shutdown: bool) -> Result<(), Box<dyn std::error::Error>> {
-    let pool = sqlx::pool::PoolOptions::new()
-        .acquire_timeout(std::time::Duration::from_secs(5))
-        .max_connections(500)
-        .idle_timeout(Some(std::time::Duration::from_secs(5*60)))
-        .connect_with(sqlx::sqlite::SqliteConnectOptions::new()
-                          .filename(db_path.join("syncron.sqlite3"))
-                          .create_if_missing(true)
-                          .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal) // Should be the default but lets be explicit
-                          .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)).await?; // Dont constantly sync(). Makes writes faster on a shared disk.
-    let db = Db::new(&pool, &db_path);
-    db.migrate().await?;
-
+pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<dyn std::error::Error>> {
     let figment = figment::Figment::from(rocket::Config::figment())
         .merge(("address", "0.0.0.0".parse::<std::net::IpAddr>().unwrap()))
         .merge(("port", port))
@@ -331,7 +319,7 @@ pub async fn serve(port: u16, db_path: PathBuf, enable_shutdown: bool) -> Result
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
         .mount("/", routes)
-        .manage(db)
+        .manage(db.clone())
         .launch().await?;
     Ok(())
 }
