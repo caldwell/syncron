@@ -234,7 +234,7 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
                                 latest_run: RunInfo{
                                     status: latest_run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status,
                                     progress: latest_run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
-                                    date:     latest_run.date.timestamp(),
+                                    date:     latest_run.date.timestamp_millis(),
                                     id:       latest_run.run_id.clone(),
                                     log_len:  Some(latest_run.log_len()),
                                     url:      Some(uri!(get_run(&job.user, &job.id, latest_run.run_id, Option::<u64>::None)).to_string()),
@@ -270,7 +270,7 @@ async fn get_runs(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<Ve
         Ok(RunInfo{
             status:   info.status,
             progress: run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
-            date:     run.date.timestamp(),
+            date:     run.date.timestamp_millis(),
             id:       run.run_id.clone(),
             log_len:  Some(run.log_len()),
             url:      Some(uri!(get_run(&run.job.user, &run.job.id, run.run_id, Option::<u64>::None)).to_string()),
@@ -289,7 +289,7 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
         run_info: RunInfo {
             status:   info.status,
             progress: run.progress().map_err(|e| wrap(&*e, "progress"))?,
-            date:     run.date.timestamp(),
+            date:     run.date.timestamp_millis(),
             id:       run.run_id.clone(),
             url:      None,
             log_len:  None,
