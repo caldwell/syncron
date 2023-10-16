@@ -185,14 +185,25 @@ function jobs_view({jobs_url, set_view}) {
                                    ]));
 }
 
+function url_with(url, params) {
+    let u = new URL(url, window.location.href);
+    u.search = (new URLSearchParams(Object.assign({}, u.searchParams, params))).toString();
+    return u;
+}
+
 function runs_view({runs_url, job, set_view}) {
     let [runs, set_runs] = React.useState(null);
     React.useEffect(() => {
         async function reload() {
-            set_runs(await fetch_json(runs_url));
+            set_runs(await fetch_json(url_with(runs_url, { num: 100 })));
+        }
+        async function find_new() {
+            let new_runs = await fetch_json(url_with(runs_url, { after: runs[0]?.date }));
+            if (new_runs)
+                set_runs(new_runs.append(runs));
         }
         reload();
-        return synced_interval(60*1000, 2000, reload);
+        return synced_interval(60*1000, 2000, find_new);
     }, [runs_url]);
     return jsr(card("runs-view",
                     `${job.user} / ${job.name}`,
