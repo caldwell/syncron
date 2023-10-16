@@ -90,7 +90,7 @@ function status_state(run) {
 
 function localiso(timestamp) {
     let offset_hours = new Date().getTimezoneOffset() / 60;
-    return new Date(new Date(timestamp*1000) - offset_hours * 60 * 60 * 1000).toISOString()
+    return new Date(new Date(timestamp) - offset_hours * 60 * 60 * 1000).toISOString()
         .replace(/T/, ' ').replace(/Z$/, `${offset_hours > 0 ? "-" : "+"}${offset_hours < 10 ? "0" : ""}${offset_hours}:00`);
 }
 
