@@ -153,8 +153,10 @@ impl Job {
 
     pub fn job_path(&self)  -> PathBuf {self.db.jobs_path().join(&self.user).join(&self.id)}
 
-    pub async fn runs(&self) -> Result<Vec<Run>, Box<dyn Error>> {
-        Ok(sqlx::query!("SELECT r.run_id, r.start, r.end, r.status, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? ORDER BY r.start DESC", self.job_id)
+    pub async fn runs(&self, num: Option<u32>, before: Option<u64>, after:Option<u64>) -> Result<Vec<Run>, Box<dyn Error>> {
+        let (num, before, after) = (num.unwrap_or(u32::MAX), before.map(|n| n as i64).unwrap_or(i64::MAX), after.map(|n| n as i64).unwrap_or(0i64));
+        Ok(sqlx::query!("SELECT r.run_id, r.start, r.end, r.status, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? AND r.start > ? AND r.start < ? ORDER BY r.start DESC LIMIT ?",
+                        self.job_id, after, before, num)
            .fetch_all(self.db.sql()).await.map_err(|e| wrap(&e, "get runs"))?.iter()
            .map(|run|  Run { job: self.clone(),
                                    date: time_from_timestamp_ms(run.start).into(),
