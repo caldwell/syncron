@@ -60,54 +60,6 @@
     },
     "query": "SELECT run_id, job_id, log, start, client_id FROM run WHERE job_id = ? AND start = ?"
   },
-  "22ee41e7f7aa20afb0282e2e9e2020465a154784a3293b91635bb1b5b13b4e54": {
-    "describe": {
-      "columns": [
-        {
-          "name": "run_id",
-          "ordinal": 0,
-          "type_info": "Int64"
-        },
-        {
-          "name": "start",
-          "ordinal": 1,
-          "type_info": "Int64"
-        },
-        {
-          "name": "end",
-          "ordinal": 2,
-          "type_info": "Int64"
-        },
-        {
-          "name": "status",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "client_id",
-          "ordinal": 4,
-          "type_info": "Text"
-        },
-        {
-          "name": "log",
-          "ordinal": 5,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true,
-        true,
-        true,
-        false
-      ],
-      "parameters": {
-        "Right": 1
-      }
-    },
-    "query": "SELECT r.run_id, r.start, r.end, r.status, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? ORDER BY r.start DESC"
-  },
   "34d557c68de852de5efd9218367999bda4555b533d228e67558631c4aa1e322b": {
     "describe": {
       "columns": [],
@@ -417,5 +369,53 @@
       }
     },
     "query": "UPDATE run SET heartbeat = ? WHERE run_id = ?"
+  },
+  "eb1048bb530795a5205dde5bce422ef0ccd27e40c4a3e0d590d382e1ee2510ac": {
+    "describe": {
+      "columns": [
+        {
+          "name": "run_id",
+          "ordinal": 0,
+          "type_info": "Int64"
+        },
+        {
+          "name": "start",
+          "ordinal": 1,
+          "type_info": "Int64"
+        },
+        {
+          "name": "end",
+          "ordinal": 2,
+          "type_info": "Int64"
+        },
+        {
+          "name": "status",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "client_id",
+          "ordinal": 4,
+          "type_info": "Text"
+        },
+        {
+          "name": "log",
+          "ordinal": 5,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        false
+      ],
+      "parameters": {
+        "Right": 4
+      }
+    },
+    "query": "SELECT r.run_id, r.start, r.end, r.status, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? AND r.start > ? AND r.start < ? ORDER BY r.start DESC LIMIT ?"
   }
 }
