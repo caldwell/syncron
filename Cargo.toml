@@ -16,7 +16,7 @@ serde_json = "1"
 sha2 = "0.10"
 base16ct = { version = "0.1.1", features = ["alloc"] }
 nix = "0.24.1"
-rocket = { version = "0.5.0-rc.1", features = ["json"] }
+rocket = { version = "0.5.0-rc.3", features = ["json"] }
 rocket_db_pools = { version = "0.1.0-rc.2", default-features = false, features = ["sqlx_sqlite"] }
 tokio = { version = "1", features = ["full", "process"] }
 figment = "*"
@@ -31,7 +31,7 @@ log = "*"
 comrak ="0.12"
 zip = "0.6"
 rand = "0.8.5"
-sqlx = { version = "0.5", features = [ "runtime-tokio-rustls", "sqlite", "macros", "migrate", "json", "offline" ] }
+sqlx = { version = "0.6", features = [ "runtime-tokio-rustls", "sqlite", "macros", "migrate", "json", "offline" ] }
 
 [dev-dependencies]
 simple_logger = { version = "2.2", default-features = false, features = [] }
