@@ -264,11 +264,16 @@ function log_view({run_url, job}) {
     let status = run && status_state(run);
 
     React.useEffect(() => {
+        let last_len;
         async function reload() {
-            let new_run = await fetch_json(run_url);
+            let new_run = await fetch_json(url_with(run_url, last_len ? { seek: last_len } : {}) );
             set_atbottom(Math.abs(window.scrollMaxY - window.scrollY) < 5); // Hack. This is as close as I can come to right before react begins to render
             console.log(`scroll at load: atbottom:${atbottom}, scrollY:${window.scrollY}, scrollYMax:${window.scrollMaxY}`);
-            set_run(new_run);
+            set_run((old_run) => {
+                new_run.log = (old_run?.log||"") + (new_run.log||"");
+                return new_run;
+            });
+            last_len = new_run.log_len;
             if (new_run.status != null) // Stop refreshing once the run is finished
                 clearInterval(id);
         }
