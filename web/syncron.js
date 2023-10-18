@@ -195,20 +195,44 @@ function url_with(url, params) {
     return u;
 }
 
+function use_interval_loader(interval_ms, url, callback) {
+    React.useEffect(() => {
+        if (!url) return;
+        let cancelled = false;
+        async function periodic() {
+            let data = await fetch_json(url);
+            if (cancelled) return;
+            callback(data);
+        }
+        let id = setInterval(periodic, interval_ms);
+        return () => { cancelled = true; clearInterval(id); }
+    }, [url?.toString(), interval_ms]);  // The URL object changes every time so show react the stringified one (which doesn't change)
+}
+
 function runs_view({runs_url, job, set_view}) {
     let [runs, set_runs] = React.useState(null);
+
+    let _sorted = runs?.concat([]).sort((a,b) => b.date-a.date);
+    let latest = _sorted?.[0].date;
+    let running = _sorted?.filter(r => r.status == null) || [];
+
     React.useEffect(() => {
-        async function reload() {
-            set_runs(await fetch_json(url_with(runs_url, { num: 100 })));
-        }
-        async function find_new() {
-            let new_runs = await fetch_json(url_with(runs_url, { after: runs[0]?.date }));
-            if (new_runs)
-                set_runs(new_runs.append(runs));
-        }
-        reload();
-        return synced_interval(60*1000, 2000, find_new);
+        let cancelled = false;
+        (async () => {
+            let runs = await fetch_json(url_with(runs_url, { num: 100 }))
+            if (!cancelled) set_runs(runs);
+        })();
+        return () => cancelled = true;
     }, [runs_url]);
+
+    use_interval_loader(5*1000, latest && url_with(runs_url, { after: latest }), (new_runs) => {
+        set_runs((old_runs) => new_runs.concat(old_runs || []));
+    });
+
+    use_interval_loader(1*1000, running.length > 0 && url_with(runs_url, running.map(r => ["id", r.id])), (updated) => {
+        set_runs((old_runs) => Object.values(Object.fromEntries((old_runs||[]).concat(updated).map(r => [r.id, r])))) // run id's are unique per job so we can uniqify them with a id hash key
+    });
+
     return jsr(card("runs-view",
                     `${job.user} / ${job.name}`,
                     runs == null ? [loading]
