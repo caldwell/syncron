@@ -11,6 +11,7 @@ pre {
   background-color: #eee;
   border-radius: .5rem;
   padding: .3rem;
+  overflow-x: auto;
 }
 
 p > code {
@@ -27,6 +28,20 @@ dt {
 dd {
     padding-left: 4em;
 }
+.docs-layout {
+    display: grid;
+    grid-template-areas: "contents docs";
+}
+.docs {
+    grid-area: docs;
+    min-width: 0;
+}
+.contents {
+    grid-area: contents;
+    position: sticky;
+    top: 0;
+    height: fit-content;
+}
     </style>
   </head>
   <body>
@@ -39,8 +54,8 @@ dd {
       </div>
     </nav>
 
-    <div class="d-flex">
-      <aside class="p-2 flex-shrink-1">
+    <div class="container-xxl docs-layout">
+      <aside class="p-2 contents">
         <div class="container">
           <div id="index" class="card">
             <div class="card-header">
@@ -52,7 +67,7 @@ dd {
           </div>
         </div>
       </aside>
-      <main class="p-2 w-100">
+      <main class="p-2 docs">
         <div class="container">
           <div class="card">
             <div class="card-header">
