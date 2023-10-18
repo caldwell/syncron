@@ -13,7 +13,7 @@ Architecture
 Syncron consists of a client and a server. The client runs on each machine
 you want to collect job data from. It is designed to act as a "passthrough
 shell"--you tell cron to use it as your shell (via the `SHELL` environment
-variable, and it runs your code collects the output and sends it off to the
+variable), and it runs your code collects the output and sends it off to the
 server. You can also run it in a client mode that doesn't try to mimic a
 shell.
 
@@ -93,11 +93,11 @@ When developing, usually what you want is just:
 
     cargo build
 
-This doesn't create a self contained binary. Instead, documentation and the
-front end web code and documentation will be served from the filesystem
-(`./web` and `./docs` respectively). This is usually more convenient when
-developing the front end code or documentation since you can just reload the
-web browser to get any new changes instead of rebuilding the app.
+This doesn't create a self contained binary. Instead, the front end web code
+and documentation will be served from the filesystem (`./web` and `./docs`
+respectively). This is usually more convenient when developing the front end
+code or documentation since you can just reload the web browser to get any new
+changes instead of rebuilding the app.
 
 #### Running tests
 
@@ -128,7 +128,7 @@ Big features that are not implemented (in no particular order):
 License
 -------
 
-Copyright © 2022 David Caldwell <david_syncron@porkrind.org>
+Copyright © 2022-2023 David Caldwell <david_syncron@porkrind.org>
 
 *TLDR: [GPLv3](/docs/license.md). You can redistribute the binary (or a
 modified version) as long as you ship the source code used to build it
