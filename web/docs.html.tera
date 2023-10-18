@@ -10,7 +10,6 @@ pre {
   border: 1px solid #eeeeee;
   background-color: #eee;
   border-radius: .5rem;
-  margin: ;
   padding: .3rem;
 }
 
