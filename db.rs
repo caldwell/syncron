@@ -330,7 +330,7 @@ impl Run {
         self.log_path.metadata().map(|m| m.len()).unwrap_or(0)
     }
 
-    pub fn log(&self, seek: Option<u64>) -> Result<Option<String>, Box<dyn Error>> {
+    pub fn log(&self, seek: Option<u64>) -> Result<Option<(String, u64)>, Box<dyn Error>> {
         use std::io::{Seek,Read};
         if !self.log_path.is_file() { return Ok(None) }
         let mut f = std::fs::File::open(&self.log_path)?;
@@ -339,7 +339,7 @@ impl Run {
         }
         let mut buf = vec![];
         f.read_to_end(&mut buf)?;
-        Ok(Some(String::from_utf8_lossy(&buf).to_string()))
+        Ok(Some((String::from_utf8_lossy(&buf).to_string(), seek.unwrap_or(0) + buf.len() as u64)))
     }
 }
 

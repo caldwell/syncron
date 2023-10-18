@@ -288,6 +288,10 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
     let run = job.run(run_id).await.map_err(|e| wrap(&*e, "run"))?;
     let info = run.info().await.map_err(|e| wrap(&*e, "info"))?;
+    let (log, log_len) = match run.log(seek).map_err(|e| wrap(&*e, "log"))? {
+        Some((log, log_len)) => (Some(log), Some(log_len)),
+        None => (None, None),
+    };
     Ok(Json(RunInfoFull{
         run_info: RunInfo {
             status:   info.status,
@@ -295,11 +299,11 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
             date:     run.date.timestamp_millis(),
             id:       run.run_id.clone(),
             url:      None,
-            log_len:  None,
+            log_len:  log_len,
         },
         cmd:      info.cmd,
         env:      info.env,
-        log:      run.log(seek).map_err(|e| wrap(&*e, "log"))?,
+        log:      log,
         seek:     seek,
     }))
 }
