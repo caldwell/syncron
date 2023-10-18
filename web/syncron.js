@@ -146,6 +146,10 @@ function synced_interval(period, offset, callback) {
     return () => clearInterval(id);
 }
 
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function jobs_view({jobs_url, set_view}) {
     let [jobs, set_jobs] = React.useState(null);
     React.useEffect(() => {
@@ -187,7 +191,7 @@ function jobs_view({jobs_url, set_view}) {
 
 function url_with(url, params) {
     let u = new URL(url, window.location.href);
-    u.search = (new URLSearchParams(Object.assign({}, u.searchParams, params))).toString();
+    u.search = (new URLSearchParams([...u.searchParams.entries()].concat(params instanceof Array ? params : Object.entries(params)))).toString();
     return u;
 }
 
