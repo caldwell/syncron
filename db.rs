@@ -167,6 +167,27 @@ impl Job {
            .collect())
     }
 
+    pub async fn runs_from_ids(&self, ids: &[&str]) -> Result<Vec<Run>, Box<dyn Error>> {
+        let ids = ids.iter().map(|id| -> Result<i64, Box<dyn Error>> {
+            let start = chrono::DateTime::parse_from_rfc3339(id)?;
+            Ok(start.timestamp_millis())
+        }).collect::<Result<Vec<i64>, Box<dyn Error>>>()?;
+
+        let id_list = ids.iter().map(|id| id.to_string()).intersperse(",".to_string()).collect::<String>();
+        #[derive(sqlx::FromRow)]
+        struct Row { run_id: i64, start: i64, client_id: Option<String>, log: String }
+        Ok(sqlx::query_as::<_, Row>(&format!("SELECT r.run_id, r.start, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? AND r.start IN ({}) ORDER BY r.start", id_list))
+           .bind(self.job_id)
+           .fetch_all(self.db.sql()).await.map_err(|e| wrap(&e, "get runs"))?.iter()
+           .map(|run|  Run { job: self.clone(),
+                             date: time_from_timestamp_ms(run.start).into(),
+                             run_id: time_string_from_timestamp_ms(run.start),
+                             run_db_id: run.run_id,
+                             client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
+                             log_path: run.log.clone().into(), })
+           .collect())
+    }
+
     pub async fn latest_run(&self) -> Result<Option<Run>, Box<dyn Error>> {
         let run = sqlx::query!("SELECT r.run_id, r.start, r.end, r.status, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? ORDER BY r.start DESC limit 1", self.job_id)
            .fetch_optional(self.db.sql()).await.map_err(|e| wrap(&e, "get runs"))?;

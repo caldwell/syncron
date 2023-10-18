@@ -230,7 +230,7 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
                     Ok(JobInfo{ id:   job.id.clone(),
                                 user: job.user.clone(),
                                 name: job.name.clone(),
-                                runs_url: uri!(get_runs(&job.user, &job.id, Option::<u32>::None, Option::<u64>::None, Option::<u64>::None)).to_string(),
+                                runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
                                 latest_run: RunInfo{
                                     status: latest_run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status,
                                     progress: latest_run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
@@ -258,12 +258,15 @@ pub struct RunInfoFull {
     pub seek:     Option<u64>,
 }
 
-#[get("/job/<user>/<job_id>/run?<num>&<before>&<after>")]
+#[get("/job/<user>/<job_id>/run?<num>&<before>&<after>&<id>")]
 #[tracing::instrument(name="GET /job/<user>/<job_id>/run", skip(db))]
-async fn get_runs(db: &State<Db>, user: &str, job_id: &str, num: Option<u32>, before: Option<u64>, after: Option<u64>) -> WebResult<Json<Vec<RunInfo>>> {
+async fn get_runs(db: &State<Db>, user: &str, job_id: &str, num: Option<u32>, before: Option<u64>, after: Option<u64>, id:Option<Vec<&str>>) -> WebResult<Json<Vec<RunInfo>>> {
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
     use rocket::futures::stream::{self, StreamExt};
-    let jobs = job.runs(num, before, after).await?;
+    let jobs = match id {
+        Some(id) if id.len() > 0  => job.runs_from_ids(&id).await?,
+        _                         => job.runs(num, before, after).await?
+    };
     debug!("Got {} runs for {}", jobs.len(), job_id);
     Ok(Json(stream::iter(jobs.into_iter()).then(async move |run| -> Result<RunInfo, String> {
         let info = run.info().await.map_err(|e| wrap_str(&*e, "info"))?;
