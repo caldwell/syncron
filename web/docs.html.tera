@@ -45,6 +45,7 @@ dd {
     </style>
   </head>
   <body>
+    <script>0/*hack around firefox "FOUC" https://bugzilla.mozilla.org/show_bug.cgi?id=1404468#c68*/</script>
     <nav class="navbar bg-gradient navbar-expand-sm">
       <div class="container-fluid">
         <span class="navbar-brand mb-0 h1">Syncron</span>
