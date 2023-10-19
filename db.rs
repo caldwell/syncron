@@ -316,9 +316,17 @@ impl Run {
     #[tracing::instrument(skip(self),ret)]
     pub async fn complete(&self, status: serve::ExitStatus) -> Result<(), Box<dyn Error>> {
         let end = Some(chrono::Local::now().timestamp_millis());
-        let status = Some(serde_json::to_string(&status)?);
+        let status_json = Some(serde_json::to_string(&status)?);
+        let success = match status {
+            serve::ExitStatus::Exited(0) => true,
+            // If it didn't print anything but stil exited with non-zero status, then consider it success. This doesn't
+            // seem strictly correct, but cron doesn't care about exit status and so a lot of cron jobs return false
+            // (especially conditional ones).
+            serve::ExitStatus::Exited(_) if self.log_len() == 0 => true,
+            _ => false,
+        };
         trace!("Completing {}/{}/{} with {:?}", self.job.user, self.job.name, self.run_id, status);
-        sqlx::query!("UPDATE run SET status = ?, end = ?, client_id = NULL WHERE run_id = ?", status, end, self.run_db_id).execute(self.job.db.sql()).await?;
+        sqlx::query!("UPDATE run SET status = ?, success = ?, end = ?, client_id = NULL WHERE run_id = ?", status_json, success, end, self.run_db_id).execute(self.job.db.sql()).await?;
         Ok(())
     }
 
