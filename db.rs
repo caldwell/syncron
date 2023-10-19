@@ -29,7 +29,7 @@ impl Db {
     }
 
     pub fn sql(&self)               -> &sqlx::SqlitePool { &self.sql }
-    pub fn jobs_path(&self)         -> PathBuf { self.db_path.join("jobs") }
+    pub fn jobs_path(&self)         -> PathBuf { "jobs".into() }
     pub async fn migrate(&self)     -> Result<(), Box<dyn Error>> {
         MIGRATOR.run(&self.sql).await.map_err(|e| wrap(&e, "Failed to initialize SQLx database"))
     }
@@ -65,7 +65,7 @@ pub struct Run {
     pub run_id: String,
     pub run_db_id: i64,
     pub client_id: Option<u128>,
-    pub log_path: PathBuf,
+    pub log_path: PathBuf, // Relative to db directory. use log_path() to get read actual file path
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -152,6 +152,7 @@ impl Job {
     }
 
     pub fn job_path(&self)  -> PathBuf {self.db.jobs_path().join(&self.user).join(&self.id)}
+    pub fn run_path(&self, run_id: &str) -> PathBuf {self.job_path().join(&run_id)}
 
     pub async fn runs(&self, num: Option<u32>, before: Option<u64>, after:Option<u64>) -> Result<Vec<Run>, Box<dyn Error>> {
         let (num, before, after) = (num.unwrap_or(u32::MAX), before.map(|n| n as i64).unwrap_or(i64::MAX), after.map(|n| n as i64).unwrap_or(0i64));
@@ -211,7 +212,7 @@ impl Run {
         let date = chrono::Local::now();
         let start = date.timestamp_millis();
         let run_id = date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let log_path = job.job_path().join(&run_id).join("log");
+        let log_path = job.run_path(&run_id).join("log");
         let log_str = log_path.as_os_str().to_str().ok_or(format!("bad unicode in {:?}", log_path))?;
         let mut client_id_bytes = [0; 128/8];
         getrandom::getrandom(&mut client_id_bytes)?;
@@ -256,11 +257,12 @@ impl Run {
         })
     }
 
-    pub fn run_path(&self)             -> PathBuf {self.job.job_path().join(&self.run_id)}
+    pub fn log_path(&self)             -> PathBuf {self.job.db.db_path.join(&self.log_path)} // Full path from cwd to log
+    pub fn run_path(&self)             -> PathBuf {self.job.run_path(&self.run_id)}          // Relative path from db to run dir
 
     fn mkdir_p(&self) -> Result<(), Box<dyn Error>> {
-        std::fs::DirBuilder::new().recursive(true).create(self.run_path())
-            .map_err(|e| wrap(&e, &format!("mkdir -p {}", self.run_path().to_string_lossy())))
+        std::fs::DirBuilder::new().recursive(true).create(self.job.db.db_path.join(self.run_path()))
+            .map_err(|e| wrap(&e, &format!("mkdir -p {}", self.job.db.db_path.join(self.run_path()).to_string_lossy())))
     }
 
     pub async fn get_info(&self) -> Result<RunInfo, Box<dyn Error>> {
@@ -296,8 +298,8 @@ impl Run {
 
     pub fn add_stdout(&self, chunk: &str) -> Result<(), Box<dyn Error>> {
         self.mkdir_p().map_err(|e| wrap(&*e, "add_stdout"))?;
-        File::options().create(true).append(true).open(&self.log_path).map_err(|e| wrap(&e, &format!("open {}", self.log_path.to_string_lossy())))?
-            .write_all(chunk.as_bytes()).map_err(|e| wrap(&e, &format!("write {}", self.log_path.to_string_lossy())))?;
+        File::options().create(true).append(true).open(&self.log_path()).map_err(|e| wrap(&e, &format!("open {}", self.log_path().to_string_lossy())))?
+            .write_all(chunk.as_bytes()).map_err(|e| wrap(&e, &format!("write {}", self.log_path().to_string_lossy())))?;
         Ok(())
     }
 
@@ -335,13 +337,13 @@ impl Run {
     }
 
     pub fn log_len(&self) -> u64 {
-        self.log_path.metadata().map(|m| m.len()).unwrap_or(0)
+        self.log_path().metadata().map(|m| m.len()).unwrap_or(0)
     }
 
     pub fn log(&self, seek: Option<u64>) -> Result<Option<(String, u64)>, Box<dyn Error>> {
         use std::io::{Seek,Read};
-        if !self.log_path.is_file() { return Ok(None) }
-        let mut f = std::fs::File::open(&self.log_path)?;
+        if !self.log_path().is_file() { return Ok(None) }
+        let mut f = std::fs::File::open(&self.log_path())?;
         if let Some(bytes) = seek {
             f.seek(std::io::SeekFrom::Start(bytes))?;
         }
