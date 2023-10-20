@@ -204,6 +204,7 @@ pub struct JobInfo {
     //pub runs: Option<Url>,
     pub latest_run: RunInfo,
     pub runs_url: String,
+    pub success_url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -231,6 +232,7 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
                                 user: job.user.clone(),
                                 name: job.name.clone(),
                                 runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
+                                success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
                                 latest_run: RunInfo{
                                     status: latest_run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status,
                                     progress: latest_run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
@@ -308,6 +310,12 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
     }))
 }
 
+#[get("/job/<user>/<job_id>/success?<before>&<after>")]
+async fn get_success(db: &State<Db>, user: &str, job_id: &str, before: Option<u64>, after: Option<u64>) -> WebResult<Json<Vec<(i64,Option<bool>)>>> {
+    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    Ok(Json(job.successes(before, after).await?))
+}
+
 #[post("/shutdown")]
 #[tracing::instrument(name="POST /shutdown", skip_all)]
 fn shutdown(shutdown: rocket::Shutdown) -> &'static str {
@@ -322,7 +330,7 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"));
     let mut routes = routes![index, files, docs_index, docs,
-                             run_create, run_heartbeat, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run];
+                             run_create, run_heartbeat, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run, get_success];
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
         .mount("/", routes)

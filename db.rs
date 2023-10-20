@@ -203,6 +203,15 @@ impl Job {
     pub async fn run(&self, run_id: &str) -> Result<Run, Box<dyn Error>> {
         Run::from_run_id(self, run_id).await
     }
+
+    pub async fn successes(&self, before: Option<u64>, after:Option<u64>) -> Result<Vec<(i64, Option<bool>)>, Box<dyn Error>> {
+        let (before, after) = (before.map(|n| n as i64).unwrap_or(i64::MAX), after.map(|n| n as i64).unwrap_or(0i64));
+        Ok(sqlx::query!("SELECT start, success FROM run WHERE job_id = ? AND start > ? AND start < ? ORDER BY start",
+                        self.job_id, after, before)
+           .fetch_all(self.db.sql()).await.map_err(|e| wrap(&e, "get hist"))?.iter()
+           .map(|run| (run.start, run.success.map(|s| s != 0)))
+           .collect())
+    }
 }
 
 impl Run {

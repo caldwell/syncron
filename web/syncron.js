@@ -173,7 +173,8 @@ function jobs_view({jobs_url, set_view}) {
                                      ["tbody",
                                       jobs.sort((a,b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())).map((job) => {
                                           let status = status_state(job.latest_run);
-                                          return ["tr", { key: job.user+job.id, className: status },
+                                          return [React.Fragment,
+                                                  ["tr", { key: job.user+job.id, className: status },
                                                   ["td", svg[status] ],
                                                   ["td", job.user ],
                                                   ["td", ["a", { href: "#", onClick: prevent_default(() => set_view({ view:"runs", runs_url: job.runs_url, job:job })) }, job.name ]],
@@ -182,11 +183,96 @@ function jobs_view({jobs_url, set_view}) {
                                                   ["td", { className: "logs-button" },
                                                    ["button", { type: "button", className: status+(job.latest_run.log_len == 0 && status != "Running" ? " disabled" : ""),
                                                                 onClick: prevent_default(() => set_view({ view:"log", run_url:job.latest_run.url, job:job, run_id:job.latest_run.id})) },
-                                                    status == "Running" ? "Tail Log" : "Last Log", ]]];
+                                                    status == "Running" ? "Tail Log" : "Last Log", ]]],
+                                                  ["tr", { key: job.user+job.id+"success-chart", className: "hist" },
+                                                   ["td", { colspan: 6 }, [success_chart, { success_url: job.success_url }]]],
+                                                  ];
                                       }),
                                      ]],
                                     jobs.length == 0 && [['h3', "There are no jobs."], ["a", { href: "/docs/adding-jobs" }, "How do I add jobs?"]],
                                    ]));
+}
+
+function success_chart({success_url}) {
+    let [successes, set_successes] = React.useState(null);
+
+    React.useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            let successes = await fetch_json(url_with(success_url, {after: Date.now() - 30*24*3600*1000}))
+            if (!cancelled) set_successes(successes);
+        })();
+        return () => cancelled = true;
+    }, [success_url]);
+
+    let canvas_ref = use_canvas((ctx, canvas) => {
+        if (canvas.width != canvas.clientWidth) canvas.width = canvas.clientWidth;
+        if (canvas.height != canvas.clientHeight) canvas.height = canvas.clientHeight;
+        ctx.fillStyle = "black";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        if (!successes) return;
+        let success = getComputedStyle(window.document.body).getPropertyValue('--bs-success');
+        let failure = getComputedStyle(window.document.body).getPropertyValue('--bs-danger');
+        let days = 30;
+        let day = Array.from(Array(days)).map(_=>[]);
+        let ms__day = 24*3600*1000;
+        let x__day = canvas.width / days;
+        let start = Date.now() - days*ms__day;
+        let gap_px = 2;
+        // Break the runs up into days based on their start times (days ago, not calendar days).
+        // Also note that when we subdivide later on we don't take time into account, we just divide the day
+        // up evenly based on how many jobs are there.
+        for (let h of successes)
+            day[Math.max(0, Math.floor((h[0]-start)/ms__day))].push(h);
+        for (let [d, h] of day.entries()) {
+            if (h.length == 0)
+                h.push([]); // make the loop run and color it grey.
+            let start_px = gap_px/2+Math.round(d*x__day);
+            let pixels = gap_px/2+Math.round((d+1)*x__day) - start_px - gap_px;
+
+            if (h.length <= pixels) { // This handles >= 1 run per day up to exactly 1 pixel per run
+                let sub_gap = h.length <= pixels/2 ? 1 : 0; // If we can fit a border around each entry, add one.
+                let x__run = (pixels + sub_gap) / h.length; // this + is counter-intuitive to me! But I worked it out on paper.
+                for (let [j, r] of h.entries()) {
+                    ctx.fillStyle = r[1] == undefined ? "#444" :
+                                    r[1] == true      ? success :
+                                    r[1] == false     ? failure : "pink";
+                    let width = (start_px + Math.round((j+1)*x__run)) - (start_px + Math.round(j*x__run)) - sub_gap;
+                    ctx.fillRect(start_px + Math.round(j*x__run), 0, width, canvas.height);
+                }
+            } else { // In this case we have N runs per px on the screen. So go through and bucket it again as above (except don't worry about start times).
+                let px = Array.from(Array(days));
+                let px__run = pixels / h.length;
+                for (let [j, r] of h.entries()) {
+                    let p = Math.floor(j*px__run);
+                    // This table prioritizes failures and de-prioritizes gaps (undefined)
+                    px[p] = px[p] == undefined             ? r[1]  :
+                            px[p] == true && r[1] == false ? false :
+                            px[p] == true                  ? true  :
+                            px[p] == false                 ? px[p] : (_=>{debugger;throw "can't happen"})();
+                }
+                for (let [x, succ] of px.entries()) {
+                    ctx.fillStyle = succ == undefined ? "#444" :
+                                    succ == true      ? success :
+                                    succ == false     ? failure : "pink";
+                    ctx.fillRect(start_px + x, 0, 1, canvas.height);
+                }
+            }
+        }
+    }, [successes]);
+    return jsr(['canvas', { ref: _=>canvas_ref.current=_ }]);
+}
+
+function use_canvas(draw, deps) {
+    let canvas_ref = React.useRef(null);
+
+    React.useEffect(() => {
+        let canvas = canvas_ref.current;
+        let context = canvas.getContext('2d');
+        draw(context, canvas);
+        return () => {}
+    }, [draw].concat(deps||[]));
+    return canvas_ref;
 }
 
 function url_with(url, params) {

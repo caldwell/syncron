@@ -59,6 +59,21 @@ nav.navbar {
     tr {
         vertical-align:middle;
     }
+
+    .hist td {
+        padding-top: 0;
+        padding-bottom: 0;
+        border: none;
+        padding: 0;
+    }
+
+    .hist canvas {
+        display: block;
+        width: 100%;
+        height: 8px;
+        border-spacing: 0;
+        image-rendering: pixelated;
+    }
 }
 
 .log-view {
