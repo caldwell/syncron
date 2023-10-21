@@ -108,6 +108,18 @@ function human_bytes(bytes) {
     return s.toString().replace(/([\d.]{4}).*/, '$1') + ["B","KB","MB","GB","TB","PB","EB"][exp];
 }
 
+function elapsed(seconds) {
+    let h = Math.floor(seconds / 60 / 60) % 60,
+        m = Math.floor(seconds / 60) % 60,
+        s = seconds % 60;
+    let t = `:${String(s).padStart(2,"0")}`;
+    if (h > 0 || m > 0)
+        t = String(m)+t;
+    if (h > 0)
+        t = `${h}:${t.padStart(5,"0")}`;
+    return t;
+}
+
 function run_status(props) {
     let status = status_state(props.run);
     return jsr([React.Fragment,
@@ -117,7 +129,7 @@ function run_status(props) {
                     ["div", { className: "progress" },
                      ["div", { className: "progress-bar",
                                role: "progressbar", style: { width: `${props.run.progress.percent * 100}%` }, "aria-valuenow": props.run.progress.percent * 100, "aria-valuemin": 0, "aria-valuemax": 100 }]],
-                    ["span", { className: "eta" }, `ETA: ${props.run.progress.eta_seconds}`]],
+                    ["span", { className: "eta" }, `ETA: ${elapsed(props.run.progress.eta_seconds)}`]],
                 status == "Running" && props.run.progress == null && [
                     ["div", { className: "progress" },
                      ["div", { className: "progress-bar indeterminate",
