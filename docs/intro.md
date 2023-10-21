@@ -113,7 +113,7 @@ to make it robust, but use at your own risk!
 
 Big features that are not implemented (in no particular order):
 
-- [ ] Progress bars with timing based on previous runs
+- [X] Progress bars with timing based on previous runs
 - [X] A horizontal plot showing good/failed jobs a-la uptime robot
 - [ ] Hosts (it currently works fine across hosts, but the namespace is per
       user instead of per host/user pair)

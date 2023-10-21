@@ -52,6 +52,7 @@ pub struct Job {
     pub name: String,
     pub job_id: i64,
     pub db: Db,
+    pub last_progress_json: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -77,6 +78,22 @@ pub struct RunInfo {
     pub status: Option<serve::ExitStatus>,
 }
 
+// progress files in the run dir
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+struct ProgressChunk {
+    timestamp_ms: i64,
+    bytes: usize,
+}
+
+// Array of these in the job db row
+#[derive(Clone, Copy, Default, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ProgressStat {
+    pub dt_pct: f64,
+    pub bytes_pct: f64,
+    pub timestamp_ms: i64,
+    pub bytes: usize,
+}
+
 pub fn slug(st: &str) -> String {
     let mut slug = st.replace(|ch: char| !ch.is_ascii_alphanumeric(), "-");
     slug.make_ascii_lowercase();
@@ -99,21 +116,22 @@ impl Job {
         let user_id = user_id(db, user).await?;
         sqlx::query!(r"INSERT INTO job (user_id, id, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", user_id, id, name)
             .execute(db.sql()).await.map_err(|e| wrap(&e, "Job ensure INSERT"))?;
-        let job = sqlx::query!("SELECT job_id FROM job WHERE user_id = ? AND id = ?", user_id, id)
+        let job = sqlx::query!("SELECT job_id, last_progress FROM job WHERE user_id = ? AND id = ?", user_id, id)
             .fetch_one(db.sql()).await.map_err(|e| wrap(&e, "Job ensure SELECT"))?;
 
         Ok(Job { db:   db.clone(),
                  user: user.to_string(),
                  id:   id,
                  name: name.to_string(),
-                 job_id: job.job_id
+                 job_id: job.job_id,
+                 last_progress_json: job.last_progress,
         })
     }
 
     pub async fn new(db: &Db, user: &str, id: &str) -> Result<Job, Box<dyn Error>> {
         if user.is_empty() || user.contains("/") || user.starts_with(".") { Err(format!("Bad user"))? }
         if id.is_empty()   || id.contains("/")   || id.starts_with(".")   { Err(format!("Bad id"))? }
-        let job = sqlx::query!(r"SELECT j.job_id, j.name
+        let job = sqlx::query!(r"SELECT j.job_id, j.name, j.last_progress
                                    FROM job j
                                    JOIN user u ON u.user_id = j.user_id
                                   WHERE u.name = ? AND j.id = ?",
@@ -124,11 +142,12 @@ impl Job {
                  id:   id.to_string(),
                  name:  job.name,
                  job_id: job.job_id,
+                 last_progress_json: job.last_progress,
         })
     }
 
     pub async fn from_id(db: &Db, job_id: i64) -> Result<Job, Box<dyn Error>> {
-        let job = sqlx::query!(r"SELECT j.job_id, j.name, u.name as user, j.id
+        let job = sqlx::query!(r"SELECT j.job_id, j.name, u.name as user, j.id, j.last_progress
                                    FROM job j
                                    JOIN user u ON u.user_id = j.user_id
                                   WHERE j.job_id = ?", job_id)
@@ -138,17 +157,19 @@ impl Job {
                  id:   job.id,
                  name:  job.name,
                  job_id: job.job_id,
+                 last_progress_json: job.last_progress,
         })
     }
 
     pub async fn jobs(db: &Db) -> Result<Vec<Job>, Box<dyn Error>> {
-        Ok(sqlx::query!("SELECT j.job_id, j.id as id, j.name as name, u.name as user FROM job j JOIN user u ON u.user_id = j.user_id")
+        Ok(sqlx::query!("SELECT j.job_id, j.id as id, j.name as name, u.name as user, j.last_progress FROM job j JOIN user u ON u.user_id = j.user_id")
            .fetch_all(db.sql()).await.map_err(|e| wrap(&e, "get jobs"))?.iter()
            .map(|job|  Job { db: db.clone(),
                              user: job.user.clone(),
                              id: job.id.clone(),
                              name: job.name.clone(),
-                             job_id: job.job_id })
+                             job_id: job.job_id,
+                             last_progress_json: job.last_progress.clone() })
            .collect())
     }
 
@@ -214,6 +235,13 @@ impl Job {
            .fetch_all(self.db.sql()).await.map_err(|e| wrap(&e, "get hist"))?.iter()
            .map(|run| (run.start, run.success.map(|s| s != 0)))
            .collect())
+    }
+
+    pub fn last_progress(&self) -> Result<Option<Vec<ProgressStat>>, Box<dyn Error>> { // deserialize this lazily. We only need it sometimes.
+        Ok(match self.last_progress_json {
+            None => None,
+            Some(ref s) => Some(serde_json::from_str(s).map_err(|e| wrap(&e, &format!("last_progress column corrupt for job {}", self.name)))?),
+        })
     }
 }
 
@@ -310,8 +338,79 @@ impl Run {
 
     pub fn add_stdout(&self, chunk: &str) -> Result<(), Box<dyn Error>> {
         self.mkdir_p().map_err(|e| wrap(&*e, "add_stdout"))?;
+
+        let bytes = chunk.as_bytes();
         File::options().create(true).append(true).open(&self.log_path()).map_err(|e| wrap(&e, &format!("open {}", self.log_path().to_string_lossy())))?
-            .write_all(chunk.as_bytes()).map_err(|e| wrap(&e, &format!("write {}", self.log_path().to_string_lossy())))?;
+            .write_all(bytes).map_err(|e| wrap(&e, &format!("write {}", self.log_path().to_string_lossy())))?;
+
+        self.update_progress(bytes.len())?;
+        Ok(())
+    }
+
+    pub fn update_progress(&self, bytes: usize) -> Result<(), Box<dyn Error>> {
+        // This is the first step of progress calculation. We keep track of when the client sends up stdout in
+        // a file next to the log file called "progress". Each line is a json entry--we append a timestamp and
+        // the number of bytes they sent. This is used to compute the progress on the next run, not the
+        // current one.
+
+        let prog = ProgressChunk { timestamp_ms: chrono::Local::now().timestamp_millis(), bytes: bytes };
+        let progress_str = serde_json::to_string(&prog)? + "\n";
+        let progress_path = self.log_path().with_file_name("progress");
+        File::options().create(true).append(true).open(&progress_path).map_err(|e| wrap(&e, &format!("open {}", progress_path.to_string_lossy())))?
+            .write_all(progress_str.as_bytes()).map_err(|e| wrap(&e, &format!("write {}", progress_path.to_string_lossy())))?;
+
+        Ok(())
+    }
+
+    pub async fn complete_progress(&self, end_timestamp_ms: i64) -> Result<(), Box<dyn Error>> {
+        // When the job is complete we read the progress file in and squish it down to something "reasonable"
+        // while adding some extra columns (we couldn't write them before since they're percentages and we
+        // didn't know the total time and bytes written). Reasonable means we try to group things such that
+        // each entry counts for about 10% of the time. On a job that writes a lot uniformly the whole time
+        // we'll get 11 entries (an extra one and the end or beginning or something). On a job that
+        // periodically spurts out lots of text it could end up with 20 entries. Either way its fairly
+        // small. This gets written to the database and the progress file gets removed.
+
+        // FIXME. All this is a first draft. It's over thought in some areas and doesn't quite work as
+        // consistently as I'd hoped. It needs a 2nd (and probably 3rd) pass.
+
+        let progress_path = self.log_path().with_file_name("progress");
+        let progress_str = match std::fs::read(&progress_path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()), // No progress file means no log. And nothing to do.
+            Err(e) => Err(e)?,
+            Ok(bytes) => String::from_utf8(bytes)?,
+        };
+
+        if let Err(e) = std::fs::remove_file(&progress_path) { // Done with it. Don't really care if we couldn't delete it.
+            warn!("Couldn't delete progress file \"{}\": {}", progress_path.to_string_lossy(), e);
+        }
+
+        let progress: Vec<ProgressChunk> = progress_str.trim().split('\n').map(|line| serde_json::from_str(line)).collect::<Result<_, _>>()?;
+        if progress.len() == 0 { return Ok(()) }
+        let start_timestamp_ms = self.date.timestamp_millis();
+        let total_ms = (end_timestamp_ms - start_timestamp_ms) as f64;
+        let total_bytes = progress.iter().rfold(0usize, |sum, &p| sum + p.bytes) as f64;
+        const THRESHOLD: f64 = 0.10;
+        let mut compact = Vec::new();
+        let mut acc = ProgressStat::default();
+        for (i, p) in progress.iter().enumerate() {
+            let dt = p.timestamp_ms - if i == 0 {  start_timestamp_ms } else { progress[i-1].timestamp_ms };
+            let dt_pct = dt as f64 / total_ms;
+            let bytes_pct = p.bytes as f64 / total_bytes;
+            if acc.dt_pct + dt_pct > THRESHOLD /* || acc.bytes_pct + bytes_pct > THRESHOLD */ {
+                compact.push(acc.clone());
+                acc.dt_pct = 0.0;
+                acc.bytes_pct = 0.0;
+            }
+            acc.dt_pct += dt_pct;
+            acc.bytes_pct += bytes_pct;
+            acc.timestamp_ms += dt;
+            acc.bytes += p.bytes;
+        }
+        if acc.dt_pct != 0.0 || acc.bytes_pct != 0.0 { compact.push(acc.clone()) }
+        let progress_json = serde_json::to_string(&compact)?;
+        sqlx::query!("UPDATE job SET last_progress = ? WHERE job_id = ?", progress_json, self.job.job_id).execute(self.job.db.sql()).await?;
+        debug!("compact progress={:#?}", compact);
         Ok(())
     }
 
@@ -341,10 +440,54 @@ impl Run {
         };
         trace!("Completing {}/{}/{} with {:?}", self.job.user, self.job.name, self.run_id, status);
         sqlx::query!("UPDATE run SET status = ?, success = ?, end = ?, client_id = NULL WHERE run_id = ?", status_json, success, end, self.run_db_id).execute(self.job.db.sql()).await?;
+        self.complete_progress(end.unwrap()).await?;
         Ok(())
     }
 
     pub fn progress(&self) -> Result<Option<serve::Progress>, Box<dyn Error>> {
+        let bytes = self.log_len() as usize;
+        let elapsed_ms = chrono::Local::now().timestamp_millis() - self.date.timestamp_millis();
+
+        // This tries to estimate our progress given the data from the last progress run. It calculates time
+        // just using the last time entry (since the table is divided up into time based progress perfectly
+        // linear and therefore pointless to use it to try to calculate the time more granularly--this is a
+        // sign the whole idea is maybe dumb).
+
+        // Then it calulates another percentage based on the current number of output bytes. This does use the
+        // table to try to relate them back to time--ideally the progress bar moves steadily as bytes come in.
+
+        // The initial idea was that the bytes could tell us if we are moving faster or slower than normal and
+        // the time could linearly adjust between spurts of output. In practice I'm not sure it works all that
+        // well. And I'm not sure if the answer is to refine the algorithm or throw it out and think of
+        // something else. How does Jenkins do it? Theirs seem fairly accurate.
+
+        let Some(progress) = self.job.last_progress()? else {
+            return Ok(None);
+        };
+        if progress.len() == 0 { return Ok(None) }
+        if progress.last().unwrap().timestamp_ms == 0 { return Ok(None) }
+
+        let last_total_ms = progress.last().unwrap().timestamp_ms as f64;
+        let time_percent = elapsed_ms as f64 / last_total_ms;
+
+        let mut percent = 0.0_f64;
+        let mut prev_bytes = 0;
+        for p in progress {
+            percent += p.dt_pct;
+            if bytes > p.bytes {
+                prev_bytes = p.bytes;
+                continue
+            }
+            let their_bytes = (p.bytes - prev_bytes) as f64;
+            let my_bytes = (bytes - prev_bytes) as f64;
+            let byte_percent = percent + p.dt_pct * my_bytes / their_bytes;
+            let ave_percent = (byte_percent + time_percent) / 2.0;
+            if ave_percent > 1.0 { return Ok(None) } // clearly we have no idea
+            debug!("byte_percent = {}%, time_percent = {}%, ave = {}%", byte_percent * 100.0, time_percent * 100.0, ave_percent * 100.0);
+            return Ok(Some(serve::Progress { percent: ave_percent as f32,
+                                             eta_seconds: (last_total_ms * (1.0 - ave_percent) / 1000.0) as u32 }));
+        }
+
         Ok(None)
     }
 
