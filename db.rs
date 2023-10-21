@@ -102,10 +102,10 @@ impl Job {
             .fetch_one(db.sql()).await.map_err(|e| wrap(&e, "Job ensure SELECT"))?;
 
         Ok(Job { db:   db.clone(),
-                       user: user.to_string(),
-                       id:   id,
-                       name: name.to_string(),
-                       job_id: job.job_id
+                 user: user.to_string(),
+                 id:   id,
+                 name: name.to_string(),
+                 job_id: job.job_id
         })
     }
 
@@ -119,10 +119,10 @@ impl Job {
                      user, id)
             .fetch_one(db.sql()).await?;
         Ok(Job { db:   db.clone(),
-                       user: user.to_string(),
-                       id:   id.to_string(),
-                       name:  job.name,
-                       job_id: job.job_id,
+                 user: user.to_string(),
+                 id:   id.to_string(),
+                 name:  job.name,
+                 job_id: job.job_id,
         })
     }
 
@@ -133,10 +133,10 @@ impl Job {
                                   WHERE j.job_id = ?", job_id)
             .fetch_one(db.sql()).await?;
         Ok(Job { db:   db.clone(),
-                       user: job.user,
-                       id:   job.id,
-                       name:  job.name,
-                       job_id: job.job_id,
+                 user: job.user,
+                 id:   job.id,
+                 name:  job.name,
+                 job_id: job.job_id,
         })
     }
 
@@ -144,10 +144,10 @@ impl Job {
         Ok(sqlx::query!("SELECT j.job_id, j.id as id, j.name as name, u.name as user FROM job j JOIN user u ON u.user_id = j.user_id")
            .fetch_all(db.sql()).await.map_err(|e| wrap(&e, "get jobs"))?.iter()
            .map(|job|  Job { db: db.clone(),
-                                   user: job.user.clone(),
-                                   id: job.id.clone(),
-                                   name: job.name.clone(),
-                                   job_id: job.job_id })
+                             user: job.user.clone(),
+                             id: job.id.clone(),
+                             name: job.name.clone(),
+                             job_id: job.job_id })
            .collect())
     }
 
@@ -160,11 +160,11 @@ impl Job {
                         self.job_id, after, before, num)
            .fetch_all(self.db.sql()).await.map_err(|e| wrap(&e, "get runs"))?.iter()
            .map(|run|  Run { job: self.clone(),
-                                   date: time_from_timestamp_ms(run.start).into(),
-                                   run_id: time_string_from_timestamp_ms(run.start),
-                                   run_db_id: run.run_id,
-                                   client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
-                                   log_path: run.log.clone().into(), })
+                             date: time_from_timestamp_ms(run.start).into(),
+                             run_id: time_string_from_timestamp_ms(run.start),
+                             run_db_id: run.run_id,
+                             client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
+                             log_path: run.log.clone().into(), })
            .collect())
     }
 
@@ -193,11 +193,11 @@ impl Job {
         let run = sqlx::query!("SELECT r.run_id, r.start, r.end, r.status, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? ORDER BY r.start DESC limit 1", self.job_id)
            .fetch_optional(self.db.sql()).await.map_err(|e| wrap(&e, "get runs"))?;
         Ok(run.map(|run| Run { job: self.clone(),
-                                     date: time_from_timestamp_ms(run.start).into(),
-                                     run_id: time_string_from_timestamp_ms(run.start),
-                                     run_db_id: run.run_id,
-                                     client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
-                                     log_path: run.log.clone().into(), }))
+                               date: time_from_timestamp_ms(run.start).into(),
+                               run_id: time_string_from_timestamp_ms(run.start),
+                               run_db_id: run.run_id,
+                               client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
+                               log_path: run.log.clone().into(), }))
     }
 
     pub async fn run(&self, run_id: &str) -> Result<Run, Box<dyn Error>> {
@@ -244,11 +244,11 @@ impl Run {
         let run = sqlx::query!("SELECT run_id, job_id, log, start FROM run WHERE client_id = ?", client_id_str)
             .fetch_one(db.sql()).await.map_err(|e| wrap(&e, "Run from_client_id SELECT"))?;
         Ok(Run { job: Job::from_id(&db, run.job_id).await?,
-                       run_db_id: run.run_id,
-                       date: time_from_timestamp_ms(run.start).into(),
-                       run_id: time_string_from_timestamp_ms(run.start),
-                       client_id: Some(id),
-                       log_path: run.log.clone().into(),
+                 run_db_id: run.run_id,
+                 date: time_from_timestamp_ms(run.start).into(),
+                 run_id: time_string_from_timestamp_ms(run.start),
+                 client_id: Some(id),
+                 log_path: run.log.clone().into(),
         })
     }
     pub async fn from_run_id(job: &Job, run_id: &str) -> Result<Run, Box<dyn Error>> {
