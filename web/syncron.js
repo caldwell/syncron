@@ -116,7 +116,7 @@ function run_status(props) {
                 status == "Running" && props.run.progress != null && [
                     ["div", { className: "progress" },
                      ["div", { className: "progress-bar",
-                               role: "progressbar", style: { width: props.run.progress.percent * 100 }, "aria-valuenow": props.run.progress.percent * 100, "aria-valuemin": 0, "aria-valuemax": 100 }]],
+                               role: "progressbar", style: { width: `${props.run.progress.percent * 100}%` }, "aria-valuenow": props.run.progress.percent * 100, "aria-valuemin": 0, "aria-valuemax": 100 }]],
                     ["span", { className: "eta" }, `ETA: ${props.run.progress.eta_seconds}`]],
                 status == "Running" && props.run.progress == null && [
                     ["div", { className: "progress" },
