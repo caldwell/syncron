@@ -64,6 +64,7 @@ pub struct JobInfo {
 pub struct Run {
     pub job: Job,
     pub date: chrono::DateTime<chrono::Local>,
+    pub duration_ms: Option<u64>,
     pub run_id: String,
     pub run_db_id: i64,
     pub client_id: Option<u128>,
@@ -185,6 +186,7 @@ impl Job {
            .fetch_all(self.db.sql()).await.map_err(|e| wrap(&e, "get runs"))?.iter()
            .map(|run|  Run { job: self.clone(),
                              date: time_from_timestamp_ms(run.start).into(),
+                             duration_ms: run.end.and_then(|e| ((e as u64).checked_sub(run.start as u64))),
                              run_id: time_string_from_timestamp_ms(run.start),
                              run_db_id: run.run_id,
                              client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
@@ -200,12 +202,13 @@ impl Job {
 
         let id_list = ids.iter().map(|id| id.to_string()).intersperse(",".to_string()).collect::<String>();
         #[derive(sqlx::FromRow)]
-        struct Row { run_id: i64, start: i64, client_id: Option<String>, log: String }
-        Ok(sqlx::query_as::<_, Row>(&format!("SELECT r.run_id, r.start, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? AND r.start IN ({}) ORDER BY r.start", id_list))
+        struct Row { run_id: i64, start: i64, end: Option<i64>, client_id: Option<String>, log: String }
+        Ok(sqlx::query_as::<_, Row>(&format!("SELECT r.run_id, r.start, r.end, r.client_id, r.log FROM run r JOIN job j ON r.job_id = j.job_id WHERE r.job_id = ? AND r.start IN ({}) ORDER BY r.start", id_list))
            .bind(self.job_id)
            .fetch_all(self.db.sql()).await.map_err(|e| wrap(&e, "get runs"))?.iter()
            .map(|run|  Run { job: self.clone(),
                              date: time_from_timestamp_ms(run.start).into(),
+                             duration_ms: run.end.and_then(|e| ((e as u64).checked_sub(run.start as u64))),
                              run_id: time_string_from_timestamp_ms(run.start),
                              run_db_id: run.run_id,
                              client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
@@ -218,6 +221,7 @@ impl Job {
            .fetch_optional(self.db.sql()).await.map_err(|e| wrap(&e, "get runs"))?;
         Ok(run.map(|run| Run { job: self.clone(),
                                date: time_from_timestamp_ms(run.start).into(),
+                               duration_ms: run.end.and_then(|e| ((e as u64).checked_sub(run.start as u64))),
                                run_id: time_string_from_timestamp_ms(run.start),
                                run_db_id: run.run_id,
                                client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
@@ -263,7 +267,7 @@ impl Run {
                                      job.job_id, client_id_str, cmd, env_str, log_str, start)
             .fetch_one(&mut transaction).await?.run_id;
         transaction.commit().await?;
-        let run = Run { run_db_id: run_db_id, job: job, date: date.into(), run_id: run_id, client_id: Some(client_id), log_path: log_path };
+        let run = Run { run_db_id: run_db_id, job: job, date: date.into(), duration_ms: None, run_id: run_id, client_id: Some(client_id), log_path: log_path };
         trace!("created {:?}", run.client_id);
         Ok(run)
     }
@@ -272,11 +276,12 @@ impl Run {
     pub async fn from_client_id(db: &Db, id: u128) -> Result<Run, Box<dyn Error>> {
         let client_id_str = format!("{}",id);
         trace!("looking for {}", client_id_str);
-        let run = sqlx::query!("SELECT run_id, job_id, log, start FROM run WHERE client_id = ?", client_id_str)
+        let run = sqlx::query!("SELECT run_id, job_id, log, start, end FROM run WHERE client_id = ?", client_id_str)
             .fetch_one(db.sql()).await.map_err(|e| wrap(&e, "Run from_client_id SELECT"))?;
         Ok(Run { job: Job::from_id(&db, run.job_id).await?,
                  run_db_id: run.run_id,
                  date: time_from_timestamp_ms(run.start).into(),
+                 duration_ms: run.end.and_then(|e| ((e as u64).checked_sub(run.start as u64))),
                  run_id: time_string_from_timestamp_ms(run.start),
                  client_id: Some(id),
                  log_path: run.log.clone().into(),
@@ -286,11 +291,12 @@ impl Run {
         let start = chrono::DateTime::parse_from_rfc3339(run_id)?;
         let start_timestamp = start.timestamp_millis();
         trace!("looking for {} [{}, {}] in job {}...", run_id, start, start_timestamp, job.job_id);
-        let run = sqlx::query!("SELECT run_id, job_id, log, start, client_id FROM run WHERE job_id = ? AND start = ?", job.job_id, start_timestamp)
+        let run = sqlx::query!("SELECT run_id, job_id, log, start, end, client_id FROM run WHERE job_id = ? AND start = ?", job.job_id, start_timestamp)
             .fetch_one(job.db.sql()).await?;
         Ok(Run { job: job.clone(),
                        run_db_id: run.run_id,
                        date: start.into(),
+                       duration_ms: run.end.and_then(|e| ((e as u64).checked_sub(run.start as u64))),
                        run_id: start.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                        client_id: run.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
                        log_path: run.log.clone().into(),
@@ -334,6 +340,10 @@ impl Run {
             }
         }
         Ok(info)
+    }
+
+    pub fn duration_ms(&self) -> u64 {
+        self.duration_ms.unwrap_or((chrono::Local::now() - self.date).num_milliseconds() as u64)
     }
 
     pub fn add_stdout(&self, chunk: &str) -> Result<(), Box<dyn Error>> {

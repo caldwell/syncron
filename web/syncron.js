@@ -108,12 +108,12 @@ function human_bytes(bytes) {
     return s.toString().replace(/([\d.]{4}).*/, '$1') + ["B","KB","MB","GB","TB","PB","EB"][exp];
 }
 
-function elapsed(seconds) {
+function elapsed(seconds, leading_zero) {
     let h = Math.floor(seconds / 60 / 60) % 60,
         m = Math.floor(seconds / 60) % 60,
         s = seconds % 60;
     let t = `:${String(s).padStart(2,"0")}`;
-    if (h > 0 || m > 0)
+    if (h > 0 || m > 0 || leading_zero)
         t = String(m)+t;
     if (h > 0)
         t = `${h}:${t.padStart(5,"0")}`;
@@ -180,7 +180,8 @@ function jobs_view({jobs_url, set_view}) {
                                        ["th", { scope: "col", className: "icon" } ],
                                        ["th", { scope: "col", className: "user" }, "User"],
                                        ["th", { scope: "col", className: "name" }, "Name"],
-                                       ["th", { scope: "col", className: "name" }, "Last Run Date"],
+                                       ["th", { scope: "col", className: "date" }, "Last Run Date"],
+                                       ["th", { scope: "col", className: "time" }, "Time"],
                                        ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
                                      ["tbody",
                                       jobs.sort((a,b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())).map((job) => {
@@ -191,13 +192,14 @@ function jobs_view({jobs_url, set_view}) {
                                                   ["td", job.user ],
                                                   ["td", ["a", { href: "#", onClick: prevent_default(() => set_view({ view:"runs", runs_url: job.runs_url, job:job })) }, job.name ]],
                                                   ["td", localiso(job.latest_run.date) ],
+                                                  ["td", { className: "time" }, elapsed(Math.floor(job.latest_run.duration_ms/1000), true)],
                                                   ["td", [run_status, {run:job.latest_run} ]],
                                                   ["td", { className: "logs-button" },
                                                    ["button", { type: "button", className: status+(job.latest_run.log_len == 0 && status != "Running" ? " disabled" : ""),
                                                                 onClick: prevent_default(() => set_view({ view:"log", run_url:job.latest_run.url, job:job, run_id:job.latest_run.id})) },
                                                     status == "Running" ? "Tail Log" : "Last Log", ]]],
                                                   ["tr", { key: job.user+job.id+"success-chart", className: "hist" },
-                                                   ["td", { colspan: 6 }, [success_chart, { success_url: job.success_url }]]],
+                                                   ["td", { colspan: 7 }, [success_chart, { success_url: job.success_url }]]],
                                                   ];
                                       }),
                                      ]],
@@ -340,6 +342,7 @@ function runs_view({runs_url, job, set_view}) {
                                       ["th", { scope: "col", className: "icon" } ],
                                       ["th", { scope: "col", className: "date" }, "Date"],
                                       ["th", { scope: "col", className: "size" }, "Log Size"],
+                                      ["th", { scope: "col", className: "time" }, "Time"],
                                       ["th", { scope: "col", className: "status" }, "Status"]]],
                                     ["tbody",
                                      runs.sort((a,b) => b.date - a.date).map((run) => {
@@ -349,6 +352,7 @@ function runs_view({runs_url, job, set_view}) {
                                                  ["td", svg[status] ],
                                                  ["td", ["a", { href: "#", onClick: prevent_default(show_log) }, run.id ]],
                                                  ["td", human_bytes(run.log_len)],
+                                                 ["td", { className: "time" }, elapsed(Math.floor(run.duration_ms/1000), true)],
                                                  ["td", [run_status, {run:run} ]],
                                                 ];
                                      }),
