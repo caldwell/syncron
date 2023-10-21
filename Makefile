@@ -6,11 +6,15 @@ release: target/release/syncron
 
 target/debug/%: *.rs payload.zip
 	cargo build
-	cat payload.zip >> $@
+	cat $@ payload.zip > $@.new
+	chmod +x $@.new
+	mv $@.new $@
 
 target/release/%: *.rs payload.zip
 	cargo build --release
-	cat payload.zip >> $@
+	cat $@ payload.zip > $@.new
+	chmod +x $@.new
+	mv $@.new $@
 
 WEB_TARGETS=web/lib/jsml-react.js web/lib/jsml-react-bundle.js web/syncron.css
 web: $(WEB_TARGETS)
