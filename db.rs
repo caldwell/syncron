@@ -2,6 +2,7 @@
 
 use std::path::{Path,PathBuf};
 
+use chrono::Datelike;
 use sqlx::migrate::Migrator;
 pub static MIGRATOR: Migrator = sqlx::migrate!(); // defaults to "./migrations"
 
@@ -152,7 +153,9 @@ impl Job {
     }
 
     pub fn job_path(&self)  -> PathBuf {self.db.jobs_path().join(&self.user).join(&self.id)}
-    pub fn run_path(&self, run_id: &str) -> PathBuf {self.job_path().join(&run_id)}
+    pub fn run_path(&self, date: chrono::DateTime<chrono::Local>) -> PathBuf {
+        self.job_path().join(date.year().to_string()).join(date.month().to_string()).join(date.day().to_string()).join(date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+    }
 
     pub async fn runs(&self, num: Option<u32>, before: Option<u64>, after:Option<u64>) -> Result<Vec<Run>, Box<dyn Error>> {
         let (num, before, after) = (num.unwrap_or(u32::MAX), before.map(|n| n as i64).unwrap_or(i64::MAX), after.map(|n| n as i64).unwrap_or(0i64));
@@ -221,7 +224,7 @@ impl Run {
         let date = chrono::Local::now();
         let start = date.timestamp_millis();
         let run_id = date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        let log_path = job.run_path(&run_id).join("log");
+        let log_path = job.run_path(date).join("log");
         let log_str = log_path.as_os_str().to_str().ok_or(format!("bad unicode in {:?}", log_path))?;
         let mut client_id_bytes = [0; 128/8];
         getrandom::getrandom(&mut client_id_bytes)?;
@@ -267,7 +270,7 @@ impl Run {
     }
 
     pub fn log_path(&self)             -> PathBuf {self.job.db.db_path.join(&self.log_path)} // Full path from cwd to log
-    pub fn run_path(&self)             -> PathBuf {self.job.run_path(&self.run_id)}          // Relative path from db to run dir
+    pub fn run_path(&self)             -> PathBuf {self.job.run_path(self.date)}          // Relative path from db to run dir
 
     fn mkdir_p(&self) -> Result<(), Box<dyn Error>> {
         std::fs::DirBuilder::new().recursive(true).create(self.job.db.db_path.join(self.run_path()))

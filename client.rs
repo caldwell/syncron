@@ -207,6 +207,7 @@ pub async fn fallback_run(timeout: Option<std::time::Duration>, cmd: &str)  -> R
 mod tests {
     use super::*;
     use crate::db;
+    use chrono::Datelike;
 
     async fn test_db() -> (db::Db, tempfile::TempDir) {
         let db_path = tempfile::Builder::new().prefix("syncron-test").tempdir().unwrap();
@@ -268,7 +269,9 @@ mod tests {
         run2.add_stdout("Even more text.\n").expect("even more text added");
         run2.complete(serve::ExitStatus::Exited(0)).await.expect("completed with no errors");
 
-        assert_file_eq!(&db_path.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest").join(&run.run_id).join("log"), "Some text. Some more text.\nEven more text.\n");
+        assert_file_eq!(&db_path.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest")
+                        .join(run2.date.year().to_string()).join(run2.date.month().to_string()).join(run2.date.day().to_string())
+                        .join(&run.run_id).join("log"), "Some text. Some more text.\nEven more text.\n");
 
         let run3 = db::Run::from_client_id(&db, id).await;
         assert!(run3.is_err(), "db::Run::from_client_id() returned was {:?}", run3);
