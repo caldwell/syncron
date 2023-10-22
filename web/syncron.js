@@ -199,7 +199,7 @@ function jobs_view({jobs_url, set_view}) {
                                                                 onClick: prevent_default(() => set_view({ view:"log", run_url:job.latest_run.url, job:job, run_id:job.latest_run.id})) },
                                                     status == "Running" ? "Tail Log" : "Last Log", ]]],
                                                   ["tr", { key: job.user+job.id+"success-chart", className: "hist" },
-                                                   ["td", { colspan: 7 }, [success_chart, { success_url: job.success_url }]]],
+                                                   ["td", { colspan: 7 }, [success_chart, { success_url: job.success_url, last_run_at: job.latest_run.date, last_run_status: status }]]],
                                                   ];
                                       }),
                                      ]],
@@ -207,7 +207,7 @@ function jobs_view({jobs_url, set_view}) {
                                    ]));
 }
 
-function success_chart({success_url}) {
+function success_chart({success_url, last_run_at, last_run_status}) {
     let [successes, set_successes] = React.useState(null);
 
     React.useEffect(() => {
@@ -217,7 +217,7 @@ function success_chart({success_url}) {
             if (!cancelled) set_successes(successes);
         })();
         return () => cancelled = true;
-    }, [success_url]);
+    }, [success_url, last_run_at, last_run_status]);
 
     let canvas_ref = use_canvas((ctx, canvas) => {
         if (canvas.width != canvas.clientWidth) canvas.width = canvas.clientWidth;
