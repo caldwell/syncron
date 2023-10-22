@@ -209,6 +209,7 @@ pub struct JobInfo {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RunInfo {
+    pub unique_id: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url:      Option<String>,
     pub date:     i64,
@@ -223,6 +224,7 @@ pub struct RunInfo {
 impl RunInfo {
     pub async fn from_run(run: &db::Run) -> Result<RunInfo, Box<dyn Error>>  {
         Ok(RunInfo{
+            unique_id: run.run_db_id,
             status: run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status,
             progress: run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
             date:     run.date.timestamp_millis(),
@@ -249,6 +251,26 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
                                 success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
                                 latest_run: RunInfo::from_run(&latest_run).await?,
                     })
+            }).try_collect().await?))
+}
+
+#[get("/runs?<after>&<id>")]
+async fn recent_runs(db: &State<Db>, after: Option<u64>, id:Option<Vec<u64>>) -> WebResult<Json<Vec<JobInfo>>> {
+    use rocket::futures::stream::{self, StreamExt, TryStreamExt};
+    let runs = match (after,id) {
+        (Some(after), None) => db::Run::most_recent(&db, after).await?,
+        (None, Some(id)) => db::Run::runs_from_ids(&db, &id).await?,
+        (_, _) => return Err(Debug(Box::<dyn Error + Send + Sync>::from(format!("Need 'after' xor 'id' parameters")))),
+    };
+    Ok(Json(stream::iter(runs.iter())
+            .then(async move |run| -> Result<JobInfo, Box<dyn Error>> {
+                Ok(JobInfo{ id:   run.job.id.clone(),
+                            user: run.job.user.clone(),
+                            name: run.job.name.clone(),
+                            runs_url: uri!(get_runs(&run.job.user, &run.job.id, _, _, _, _)).to_string(),
+                            success_url: uri!(get_success(&run.job.user, &run.job.id, _, _)).to_string(),
+                            latest_run: RunInfo::from_run(&run).await?,
+                })
             }).try_collect().await?))
 }
 
@@ -292,6 +314,7 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
     };
     Ok(Json(RunInfoFull{
         run_info: RunInfo {
+            unique_id: run.run_db_id,
             status:   info.status,
             progress: run.progress().map_err(|e| wrap(&*e, "progress"))?,
             date:     run.date.timestamp_millis(),
@@ -327,7 +350,8 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"));
     let mut routes = routes![index, files, docs_index, docs,
-                             run_create, run_heartbeat, run_stdout, run_stderr, run_complete, jobs, get_runs, get_run, get_success];
+                             run_create, run_heartbeat, run_stdout, run_stderr, run_complete, // client endpoints
+                             jobs, recent_runs, get_runs, get_run, get_success];              // web app endpoints
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
         .mount("/", routes)
