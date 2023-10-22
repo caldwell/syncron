@@ -303,6 +303,56 @@ impl Run {
         })
     }
 
+    pub async fn most_recent(db: &Db, after: u64) -> Result<Vec<Run>, Box<dyn Error>> {
+        let after = after as i64;
+        let run = sqlx::query!(r#"SELECT r.run_id, r.log, r.start, r.end, r.client_id, j.job_id, j.name, u.name as user, j.id, j.last_progress
+                                    FROM run r
+                                    JOIN job j  ON r.job_id = j.job_id
+                                    JOIN user u ON j.user_id = u.user_id
+                                   WHERE start > ?"#, after)
+            .fetch_all(db.sql()).await?;
+        Ok(run.iter().map(|row| Run { job: Job { user: row.user.clone(),
+                                          id: row.id.clone(),
+                                          name: row.name.clone(),
+                                          job_id: row.job_id,
+                                          db: db.clone(),
+                                          last_progress_json: row.last_progress.clone(),
+                                    },
+                               date: time_from_timestamp_ms(row.start).into(),
+                               duration_ms: row.end.and_then(|e| ((e as u64).checked_sub(row.start as u64))),
+                               run_id: time_string_from_timestamp_ms(row.start),
+                               run_db_id: row.run_id,
+                               client_id: row.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
+                               log_path: row.log.clone().into(), })
+           .collect())
+    }
+
+    pub async fn runs_from_ids(db: &Db, ids: &[u64]) -> Result<Vec<Run>, Box<dyn Error>> {
+        let id_list = ids.iter().map(|id| id.to_string()).intersperse(",".to_string()).collect::<String>();
+        #[derive(sqlx::FromRow)]
+        struct Row { run_id: i64, start: i64, end: Option<i64>, client_id: Option<String>, log: String, job_id: i64, name: String, user: String, id: String, last_progress: Option<String> }
+        Ok(sqlx::query_as::<_, Row>(&format!(r#"SELECT r.run_id, r.start, r.end, r.client_id, r.log, j.job_id, j.name, u.name as user, j.id, j.last_progress
+                                                  FROM run r
+                                                  JOIN job j ON r.job_id = j.job_id
+                                                  JOIN user u ON j.user_id = u.user_id
+                                                 WHERE r.run_id IN ({})"#, id_list))
+           .fetch_all(db.sql()).await.map_err(|e| wrap(&e, "get runs"))?.iter()
+           .map(|row|   Run { job: Job { user: row.user.clone(),
+                                         id: row.id.clone(),
+                                         name: row.name.clone(),
+                                         job_id: row.job_id,
+                                         db: db.clone(),
+                                         last_progress_json: row.last_progress.clone(),
+                                    },
+                              date: time_from_timestamp_ms(row.start).into(),
+                              duration_ms: row.end.and_then(|e| ((e as u64).checked_sub(row.start as u64))),
+                              run_id: time_string_from_timestamp_ms(row.start),
+                              run_db_id: row.run_id,
+                              client_id: row.client_id.as_ref().and_then(|id| id.parse::<u128>().ok()),
+                              log_path: row.log.clone().into(), })
+           .collect())
+    }
+
     pub fn log_path(&self)             -> PathBuf {self.job.db.db_path.join(&self.log_path)} // Full path from cwd to log
     pub fn run_path(&self)             -> PathBuf {self.job.run_path(self.date)}          // Relative path from db to run dir
 
