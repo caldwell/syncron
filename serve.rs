@@ -223,11 +223,10 @@ pub struct RunInfo {
 #[get("/jobs")]
 #[tracing::instrument(name="GET /jobs", skip(db))]
 async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
-    use rocket::futures::stream::{self, StreamExt};
+    use rocket::futures::stream::{self, StreamExt, TryStreamExt};
     let jobs = db::Job::jobs(&db).await.map_err(|e| wrap(&*e, "jobs"))?;
     Ok(Json(stream::iter(jobs.iter())
-            .then(async move |job| -> Result<JobInfo, String> {
-                (async move |job: db::Job| -> Result<JobInfo, String> {
+            .then(async move |job| -> Result<JobInfo, Box<dyn Error>> {
                     let latest_run = job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))?.unwrap();
                     Ok(JobInfo{ id:   job.id.clone(),
                                 user: job.user.clone(),
@@ -244,11 +243,7 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
                                     url:      Some(uri!(get_run(&job.user, &job.id, latest_run.run_id, Option::<u64>::None)).to_string()),
                                 },
                     })
-                })(job.clone()).await.map_err(|e| format!("{}: {}", e, &job.id))
-            }).filter_map(async move |ji| {
-                if let Err(ref e) = ji { warn!("skipping job due to error: {}", e) }
-                ji.ok()
-            }).collect().await))
+            }).try_collect().await?))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -266,13 +261,13 @@ pub struct RunInfoFull {
 #[tracing::instrument(name="GET /job/<user>/<job_id>/run", skip(db))]
 async fn get_runs(db: &State<Db>, user: &str, job_id: &str, num: Option<u32>, before: Option<u64>, after: Option<u64>, id:Option<Vec<&str>>) -> WebResult<Json<Vec<RunInfo>>> {
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
-    use rocket::futures::stream::{self, StreamExt};
+    use rocket::futures::stream::{self, StreamExt, TryStreamExt};
     let jobs = match id {
         Some(id) if id.len() > 0  => job.runs_from_ids(&id).await?,
         _                         => job.runs(num, before, after).await?
     };
     debug!("Got {} runs for {}", jobs.len(), job_id);
-    Ok(Json(stream::iter(jobs.into_iter()).then(async move |run| -> Result<RunInfo, String> {
+    Ok(Json(stream::iter(jobs.into_iter()).then(async move |run| -> Result<RunInfo, Box<dyn Error>> {
         let info = run.info().await.map_err(|e| wrap_str(&*e, "info"))?;
         Ok(RunInfo{
             status:   info.status,
@@ -283,7 +278,7 @@ async fn get_runs(db: &State<Db>, user: &str, job_id: &str, num: Option<u32>, be
             log_len:  Some(run.log_len()),
             url:      Some(uri!(get_run(&run.job.user, &run.job.id, run.run_id, Option::<u64>::None)).to_string()),
         })
-    }).filter_map(async move |ri| ri.ok()).collect().await))
+    }).try_collect().await?))
 }
 
 #[get("/job/<user>/<job_id>/run/<run_id>?<seek>")]
