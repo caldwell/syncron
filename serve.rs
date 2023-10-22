@@ -220,6 +220,20 @@ pub struct RunInfo {
     pub log_len:  Option<u64>,
 }
 
+impl RunInfo {
+    pub async fn from_run(run: &db::Run) -> Result<RunInfo, Box<dyn Error>>  {
+        Ok(RunInfo{
+            status: run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status,
+            progress: run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
+            date:     run.date.timestamp_millis(),
+            duration_ms: run.duration_ms(),
+            id:       run.run_id.clone(),
+            log_len:  Some(run.log_len()),
+            url:      Some(uri!(get_run(&run.job.user, &run.job.id, &run.run_id, _)).to_string()),
+        })
+    }
+}
+
 #[get("/jobs")]
 #[tracing::instrument(name="GET /jobs", skip(db))]
 async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
@@ -233,15 +247,7 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
                                 name: job.name.clone(),
                                 runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
                                 success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
-                                latest_run: RunInfo{
-                                    status: latest_run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status,
-                                    progress: latest_run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
-                                    date:     latest_run.date.timestamp_millis(),
-                                    duration_ms: latest_run.duration_ms(),
-                                    id:       latest_run.run_id.clone(),
-                                    log_len:  Some(latest_run.log_len()),
-                                    url:      Some(uri!(get_run(&job.user, &job.id, latest_run.run_id, Option::<u64>::None)).to_string()),
-                                },
+                                latest_run: RunInfo::from_run(&latest_run).await?,
                     })
             }).try_collect().await?))
 }
@@ -267,18 +273,10 @@ async fn get_runs(db: &State<Db>, user: &str, job_id: &str, num: Option<u32>, be
         _                         => job.runs(num, before, after).await?
     };
     debug!("Got {} runs for {}", jobs.len(), job_id);
-    Ok(Json(stream::iter(jobs.into_iter()).then(async move |run| -> Result<RunInfo, Box<dyn Error>> {
-        let info = run.info().await.map_err(|e| wrap_str(&*e, "info"))?;
-        Ok(RunInfo{
-            status:   info.status,
-            progress: run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
-            date:     run.date.timestamp_millis(),
-            duration_ms: run.duration_ms(),
-            id:       run.run_id.clone(),
-            log_len:  Some(run.log_len()),
-            url:      Some(uri!(get_run(&run.job.user, &run.job.id, run.run_id, Option::<u64>::None)).to_string()),
-        })
-    }).try_collect().await?))
+    Ok(Json(stream::iter(jobs.into_iter())
+            .then(async move |run| -> Result<RunInfo, Box<dyn Error>> {
+                Ok(RunInfo::from_run(&run).await?)
+            }).try_collect().await?))
 }
 
 #[get("/job/<user>/<job_id>/run/<run_id>?<seek>")]
