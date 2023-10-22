@@ -64,14 +64,38 @@ hand on any command that's not simple.
 
 ## Job Names
 
-Jobs can be named anything (whitespace and symbols are all fair
-game). Syncron creates an internal id for the job by "sluggifying" the name:
-`My $$wierdo$$ nAmE! (1234)` becomes `my-weirdo-name-1234` (only ascii
-alphanumerics come through (lowercased), everything else turns into `-` and
-consecutive dashes get coalesced).
+Jobs can be named anything (whitespace and symbols are all fair game). When
+the Syncron client runs a job with only the name specified, it creates an
+internal ID for the job by "sluggifying" the name: `My $$wierdo$$ nAmE! (1234)`
+becomes `my-weirdo-name-1234` (only ascii alphanumerics come through
+(lowercased), everything else turns into `-` and consecutive dashes get
+coalesced). This is usually sufficient.
 
 This can become an issue if two job names differ only in capitalization,
 symbols, or whitespace. It is suggested to just make the names sufficiently
 different but if you are dead set on your naming conventions, you can set
-the id explicitly with the `SYNCRON_JOB_ID` environment variable (or `--id`
-flag).
+the ID explicitly with the `@job_id` syntax in the `SYNCRON_NAME`
+environment variable (see below) (or `--id` flag).
+
+When the Syncron client runs a job with both the name and ID specified, it
+will only care about the name if it's the first time the job has been
+run--it writes the name into the database when it creates the new job. On
+subsequent runs, the name is ignored (it finds the job in the database from
+the ID).
+
+There is currently no user friendly way to change either the ID or the name
+of an already created job.
+
+## `SYNCRON_NAME` syntax
+
+The `SYNCRON_NAME` environment variable can specify either the job name, the
+job ID, or both. Normally the value is interpreted as just the name. To
+specify a job ID, prefix it with an `@`. Similarly, to specify a job ID and
+a name at the same time, prefix the name with `@<job-id>` and a space. For
+example:
+
+```
+SYNCRON_NAME="This is just the name"
+SYNCRON_NAME=@this-is-a-job-id
+SYNCRON_NAME="@this-is-the-id And also a name!"
+```
