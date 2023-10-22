@@ -44,7 +44,7 @@ function app({nav_el, initial_view}) {
                        crumb.click ? ["li", { className: "breadcrumb-item" },        ["a", { href:"#", onClick:prevent_default(crumb.click) }, crumb.id]]
                                    : ["li", { className: "breadcrumb-item active" },                                                           crumb.id]),
                   ]]],
-                view.view == "jobs" ? [jobs_view, { set_view: push_view, jobs_url: "/jobs" }] :
+                view.view == "jobs" ? [jobs_view, { set_view: push_view, jobs_url: "/jobs", runs_url: "/runs" }] :
                 view.view == "runs" ? [runs_view, { set_view: push_view, runs_url: view.runs_url, job: view.job }] :
                 view.view == "log"  ? [log_view,  { set_view: push_view, run_url:  view.run_url,  job: view.job }]
                                     : ["div", { className: "alert alert-danger" }, "Can't happen"]]);
@@ -162,15 +162,39 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function jobs_view({jobs_url, set_view}) {
+function jobs_view({jobs_url, runs_url, set_view}) {
     let [jobs, set_jobs] = React.useState(null);
+
+    let _sorted = jobs?.map(job => job.latest_run).sort((a,b) => b.date-a.date);
+    let latest = _sorted?.[0].date;
+    let running = _sorted?.filter(r => r.status == null) || [];
+
     React.useEffect(() => {
-        async function reload() {
-            set_jobs(await fetch_json(jobs_url));
-        }
-        reload();
-        return synced_interval(60*1000, 2000, reload);
+        let cancelled = false;
+        (async () => {
+            let jobs = await fetch_json(jobs_url)
+            if (!cancelled) set_jobs(jobs);
+        })();
+        return () => cancelled = true;
     }, [jobs_url]);
+
+    let update_runs = (new_job_runs) => {
+        set_jobs((old_jobs) => {
+            let new_jobs = old_jobs.concat([]);
+            new_job_runs.forEach(new_job_run => {
+                let i = new_jobs.findIndex(job => job.runs_url == new_job_run.runs_url);
+                if (i == -1) // ??? How could this happen? I guess if a new job were created? What should we do here?
+                    return;
+                new_jobs[i].latest_run = new_job_run.latest_run;
+            });
+            return new_jobs;
+        });
+    }
+
+    use_interval_loader(5*1000, latest && url_with(runs_url, { after: latest }), (updated) => update_runs(updated));
+
+    use_interval_loader(1*1000, running.length > 0 && url_with(runs_url, running.map(r => ["id", r.unique_id])), (updated) => update_runs(updated));
+
     return jsr(card("jobs-view",
                     "Jobs",
                     jobs == null ? [loading]
