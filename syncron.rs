@@ -14,7 +14,7 @@ mod serve;
 mod db;
 mod maybe_utf8;
 
-const USAGE: &'static str = "
+const USAGE: &'static str = r#"
 Usage:
   syncron --help
   syncron -c <job-cmd>
@@ -26,13 +26,15 @@ Options:
   -v --verbose           Be more verbose.
   -c <job-cmd>           Shell combatible equivalent of `syncron exec <job-cmd>`
   -n --name=<name>       Job name (env: SYNCRON_NAME)
-  -i --id=<job-id>       Job id (will be created from name is not specified) (env: SYNCRON_JOB_ID)
+  -i --id=<job-id>       Job id (will be created from name is not specified)
+                         To specify the job id from the environment, set SYNCRON_NAME to
+                         "@<job-id>" or "@<job-id> <job-name>".
   --timeout=<timespec>   Time out job if it runs too long. Timespec is '1s, 3m, 4h', etc.
   --server=<server-url>  Base URL of a `syncron serve` instance (env: SYNCRON_SERVER)
   --db=<path-to-db>      Path to the db. Will be created if it doesn't exist [default: ./db]
                          (env: SYNCRON_DB)
   --port=<port>          Port to listen on [default: 8000] (env: SYNCRON_PORT)
-";
+"#;
 
 #[derive(Debug, serde::Deserialize)]
 struct Args {
@@ -58,8 +60,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Client settings
     env_if("SYNCRON_SERVER", |s| Ok(args.flag_server = Some(s.into())))?;
-    env_if("SYNCRON_NAME",   |s| Ok(args.flag_name   = Some(s.into())))?;
-    env_if("SYNCRON_JOB_ID", |s| Ok(args.flag_job_id = Some(s.into())))?;
+    env_if("SYNCRON_NAME",   |s| Ok({ let (job_id, name) = parse_name_env(s);
+                                      if job_id.is_some() { args.flag_job_id = job_id }
+                                      if name.is_some()   { args.flag_name   = name } }))?;
     // Server settings
     env_if("SYNCRON_PORT",   |s| Ok(args.flag_port   = s.parse::<u16>()?))?;
     env_if("SYNCRON_DB",     |s| Ok(args.flag_db     = Some(s.into())))?;
@@ -139,6 +142,15 @@ fn parse_timespec(s: &str) -> Result<std::time::Duration, Box<dyn Error>> {
         "d" => std::time::Duration::new(val * 60 * 60 * 24, 0),
         _ => Err(format!("Bad time unit: {}", s))?,
     })
+}
+
+/// Returns (job_id, name)
+fn parse_name_env(s: &str) -> (Option<String>, Option<String>) {
+    match s.strip_prefix('@').map(|jn| jn.split_once(' ').ok_or(jn)) {
+        Some(Ok((job_id, name))) => (Some(job_id.to_owned()), Some(name.to_owned())),
+        Some(Err(job_id))        => (Some(job_id.to_owned()), None),
+        None                     => (None,                    Some(s.to_owned())),
+    }
 }
 
 fn env_if<T, F: FnOnce(&str) -> Result<T,Box<dyn Error>>>(name: &str, f: F) -> Result<Option<T>,String> {
