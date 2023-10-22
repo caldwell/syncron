@@ -10,12 +10,10 @@ Architecture
 
 ![Architecture Overview](/docs/architecture.svg)
 
-Syncron consists of a client and a server. The client runs on each machine
-you want to collect job data from. It is designed to act as a "passthrough
-shell"--you tell cron to use it as your shell (via the `SHELL` environment
-variable), and it runs your code collects the output and sends it off to the
-server. You can also run it in a client mode that doesn't try to mimic a
-shell.
+Syncron consists of a client and a server. You invoke the client to launch a
+job and send its output off to the server. The client can act as a
+shell which makes converting crontabs to use syncron _very_
+easy.
 
 The server is an http server. It acts as both a server for the Syncron web
 application to view logs and as the backend api server that the syncron
