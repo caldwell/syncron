@@ -39,7 +39,7 @@ Options:
 #[derive(Debug, serde::Deserialize)]
 struct Args {
     flag_verbose: usize,
-    flag_db:      Option<String>,
+    flag_db:      String,
     flag_port:    u16,
     flag_c:       Option<String>,
     flag_timeout: Option<String>,
@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                                       if name.is_some()   { args.flag_name   = name } }))?;
     // Server settings
     env_if("SYNCRON_PORT",   |s| Ok(args.flag_port   = s.parse::<u16>()?))?;
-    env_if("SYNCRON_DB",     |s| Ok(args.flag_db     = Some(s.into())))?;
+    env_if("SYNCRON_DB",     |s| Ok(args.flag_db     = s.into()))?;
 
     use tracing_subscriber::fmt::format::FmtSpan;
     let (env_filter, span_events) = match args.flag_verbose {
@@ -111,8 +111,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if args.cmd_serve {
-        let db_path = args.flag_db.ok_or("missing --db or SYNCRON_DB environment variable")?;
-        let db = db::Db::new(&std::path::PathBuf::from(db_path.clone())).await?;
+        let db = db::Db::new(&std::path::PathBuf::from(args.flag_db.clone())).await?;
         let serve = async { serve::serve(args.flag_port, &db, false).await.map_err(|e| format!("serve failed: {}", e)) };
         tokio::join!(serve).0?;
     }
