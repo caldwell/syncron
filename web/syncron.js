@@ -357,10 +357,16 @@ function runs_view({runs_url, job, set_view}) {
         set_runs((old_runs) => Object.values(Object.fromEntries((old_runs||[]).concat(updated).map(r => [r.id, r])))) // run id's are unique per job so we can uniqify them with a id hash key
     });
 
+    let load_more = async (count) => {
+        let new_runs = await fetch_json(url_with(runs_url, { before: Math.min(...runs.map(r => r.date)), num: count }))
+        set_runs((old_runs) => new_runs.concat(old_runs || []));
+    };
+
     return jsr(card("runs-view",
                     `${job.user} / ${job.name}`,
                     runs == null ? [loading]
-                                 : ["table", { className: "jobs" },
+                                 : [React.Fragment,
+                                    ["table", { className: "jobs" },
                                     ["thead",
                                      ["tr",
                                       ["th", { scope: "col", className: "icon" } ],
@@ -380,7 +386,11 @@ function runs_view({runs_url, job, set_view}) {
                                                  ["td", [run_status, {run:run} ]],
                                                 ];
                                      }),
-                                    ]]));
+                                    ]],
+                                    ["button", "Load 100 more entries", { onClick: prevent_default(() => load_more(100)) }],
+                                    ["button", "Load 1000 more entries", { onClick: prevent_default(() => load_more(1000)) }],
+                                    ["button", "Load all the entries", { onClick: prevent_default(() => load_more()) }],
+                                   ]));
 }
 
 function log_view({run_url, job}) {
