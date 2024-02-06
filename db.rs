@@ -528,7 +528,7 @@ impl Run {
         if progress.last().unwrap().timestamp_ms == 0 { return Ok(None) }
 
         let last_total_ms = progress.last().unwrap().timestamp_ms as f64;
-        let time_percent = elapsed_ms as f64 / last_total_ms;
+        let time_percent = match last_total_ms == 0.0 { true => None, false => Some(elapsed_ms as f64 / last_total_ms), };
 
         let mut percent = 0.0_f64;
         let mut prev_bytes = 0;
@@ -540,10 +540,15 @@ impl Run {
             }
             let their_bytes = (p.bytes - prev_bytes) as f64;
             let my_bytes = (bytes - prev_bytes) as f64;
-            let byte_percent = percent + p.dt_pct * my_bytes / their_bytes;
-            let ave_percent = (byte_percent + time_percent) / 2.0;
+            let byte_percent = match their_bytes == 0.0 { true => None, false => Some(percent + p.dt_pct * my_bytes / their_bytes), };
+            let ave_percent = match (byte_percent, time_percent) {
+                (Some(bp), Some(tp)) => (bp + tp) / 2.0,
+                (Some(bp), None)     => bp,
+                (None,     Some(tp)) => tp,
+                (None,     None)     => { return Ok(None) },
+            };
             if ave_percent > 1.0 { return Ok(None) } // clearly we have no idea
-            debug!("byte_percent = {}%, time_percent = {}%, ave = {}%", byte_percent * 100.0, time_percent * 100.0, ave_percent * 100.0);
+            debug!("byte_percent = {:?}%, time_percent = {:?}%, ave = {}%", byte_percent.map(|p| p * 100.0), time_percent.map(|p| p * 100.0), ave_percent * 100.0);
             return Ok(Some(serve::Progress { percent: ave_percent as f32,
                                              eta_seconds: (last_total_ms * (1.0 - ave_percent) / 1000.0) as u32 }));
         }
