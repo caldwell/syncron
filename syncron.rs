@@ -44,7 +44,7 @@ struct Args {
     flag_c:       Option<String>,
     flag_timeout: Option<String>,
     flag_name:    Option<String>,
-    flag_job_id:  Option<String>,
+    flag_id:      Option<String>,
     flag_server:  Option<String>,
     cmd_exec:     bool,
     cmd_serve:    bool,
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Client settings
     env_if("SYNCRON_SERVER", |s| Ok(args.flag_server = Some(s.into())))?;
     env_if("SYNCRON_NAME",   |s| Ok({ let (job_id, name) = parse_name_env(s);
-                                      if job_id.is_some() { args.flag_job_id = job_id }
+                                      if job_id.is_some() { args.flag_id     = job_id }
                                       if name.is_some()   { args.flag_name   = name } }))?;
     // Server settings
     env_if("SYNCRON_PORT",   |s| Ok(args.flag_port   = s.parse::<u16>()?))?;
@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let server: reqwest::Url = args.flag_server.ok_or("missing --server or SYNCRON_SERVER environment variable")?.parse()?;
         let name   = args.flag_name  .ok_or("missing --name or SYNCRON_NAME environment variable")?;
         let timeout = args.flag_timeout.map(|s| parse_timespec(&s).unwrap());
-        let result = client::Job::new(server.clone(), &getuser(), &name, args.flag_job_id.as_deref(), timeout, &job_cmd).await.map_err(|e| e.to_string());
+        let result = client::Job::new(server.clone(), &getuser(), &name, args.flag_id.as_deref(), timeout, &job_cmd).await.map_err(|e| e.to_string());
         match result {
             Ok(job) => {
                 trace!("{:?}", job);
