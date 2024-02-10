@@ -18,7 +18,7 @@ const USAGE: &'static str = r#"
 Usage:
   syncron --help
   syncron -c <job-cmd>
-  syncron [-h] [-v...] exec (-n <name> | -i <id> | -n <name> -i <id>) [--timeout=<timespec>] [--server=<server-url>] <job-cmd>
+  syncron [-h] [-v...] exec (-n <name> | -i <id> | -n <name> -i <id>) [--timeout=<timespec>] [--server=<server-url>] <job-cmd>...
   syncron [-h] [-v...] serve [--db=<path>] [--port=<port>]
 
 Options:
@@ -48,7 +48,7 @@ struct Args {
     flag_server:  Option<String>,
     cmd_exec:     bool,
     cmd_serve:    bool,
-    arg_job_cmd:  String,
+    arg_job_cmd:  Vec<String>,
 }
 
 #[rocket::main]
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing::debug!("args={:?}", args);
 
     if args.cmd_exec || args.flag_c.is_some() {
-        let job_cmd = if args.cmd_exec { args.arg_job_cmd } else { args.flag_c.unwrap() };
+        let job_cmd = if args.cmd_exec { client::Command::Exec(args.arg_job_cmd) } else { client::Command::Shell(args.flag_c.unwrap()) };
         let server: reqwest::Url = args.flag_server.ok_or("missing --server or SYNCRON_SERVER environment variable")?.parse()?;
         let name   = args.flag_name  .ok_or("missing --name or SYNCRON_NAME environment variable")?;
         let timeout = args.flag_timeout.map(|s| parse_timespec(&s).unwrap());

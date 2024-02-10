@@ -14,31 +14,23 @@ use crate::maybe_utf8::MaybeUTF8;
 pub struct Job {
     id:       String,
     timeout:  Option<std::time::Duration>,
-    cmd:      String,
+    cmd:      Command,
     api:      Api,
 }
 
 impl Job {
-    pub async fn new(server_url: Url, user: &str, name: &str, id: Option<&str>, timeout: Option<std::time::Duration>, cmd: &str) -> Result<Job, Box<dyn Error>> {
+    pub async fn new(server_url: Url, user: &str, name: &str, id: Option<&str>, timeout: Option<std::time::Duration>, cmd: &Command) -> Result<Job, Box<dyn Error>> {
         let mut env=vec![];
         for (k, v) in std::env::vars_os() {
             env.push((MaybeUTF8::new(k),MaybeUTF8::new(v)));
         }
         let api = Api::new(server_url)?;
         let resp: serve::CreateRunResp = serde_json::from_str(&api.post("/run/create", &serde_json::to_string(&serve::CreateRunReq{ user:user.to_string(), name:name.to_string(), id:id.map(|i|i.to_string()), cmd:cmd.to_string(), env:env })?.as_bytes()).await?)?;
-        Ok(Job { id:resp.id, timeout:timeout, cmd:cmd.to_string(), api: api })
+        Ok(Job { id:resp.id, timeout:timeout, cmd:cmd.to_owned(), api: api })
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn Error>> {
-        use tokio::process::Command;
-
-        let shell = match (std::env::var("SYNCRON_SHELL"), std::env::var("SHELL"), std::env::args().nth(0)) {
-            (Ok(sh), _,      _)                    => sh,
-            (_,      Ok(sh), Some(me)) if sh != me => sh, // Prevent recursion
-            (_,      Ok(sh), None)                 => sh, // Probably will never happen
-            (_,      _,      _)                    => "/bin/sh".to_string(),
-        };
-        let mut child = Command::new(shell).args([OsString::from("-c"), OsString::from(&self.cmd)])
+        let mut child = self.cmd.create()
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -147,17 +139,9 @@ impl Api {
     }
 }
 
-pub async fn fallback_run(timeout: Option<std::time::Duration>, cmd: &str)  -> Result<(), Box<dyn Error>> {
+pub async fn fallback_run(timeout: Option<std::time::Duration>, cmd: &Command)  -> Result<(), Box<dyn Error>> {
     // This is largely a copy+paste of Job::run(), above, but I don't know that it's worth it to abstract and de-duplicate.
-    use tokio::process::Command;
-
-    let shell = match (std::env::var("SYNCRON_SHELL"), std::env::var("SHELL"), std::env::args().nth(0)) {
-        (Ok(sh), _,      _)                    => sh,
-        (_,      Ok(sh), Some(me)) if sh != me => sh, // Prevent recursion
-        (_,      Ok(sh), None)                 => sh, // Probably will never happen
-        (_,      _,      _)                    => "/bin/sh".to_string(),
-    };
-    let mut child = Command::new(shell).args([OsString::from("-c"), OsString::from(&cmd)])
+    let mut child = cmd.create()
         .stdin(std::process::Stdio::null())
         .spawn()?;
 
@@ -201,6 +185,54 @@ pub async fn fallback_run(timeout: Option<std::time::Duration>, cmd: &str)  -> R
         }
     }
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub enum Command {
+    Shell(String),
+    Exec(Vec<String>),
+}
+
+impl Command {
+    pub fn create(&self) -> tokio::process::Command {
+        let (exe, args) = match self {
+            Command::Exec(args) => (args[0].clone(), args[1..].iter().map(|a| OsString::from(&a)).collect::<Vec<_>>()),
+            Command::Shell(cmd) => {
+                let shell = match (std::env::var("SYNCRON_SHELL"), std::env::var("SHELL"), std::env::args().nth(0)) {
+                    (Ok(sh), _,      _)                    => sh,
+                    (_,      Ok(sh), Some(me)) if sh != me => sh, // Prevent recursion
+                    (_,      Ok(sh), None)                 => sh, // Probably will never happen
+                    (_,      _,      _)                    => "/bin/sh".to_string(),
+                };
+                (shell, vec![OsString::from("-c"), OsString::from(&cmd)])
+            },
+        };
+        let mut c = tokio::process::Command::new(exe);
+        c.args(args);
+        c
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Command::Shell(cmd) => cmd.clone(),
+            Command::Exec(args) => {
+                let mut cmd = String::new();
+                for arg in args.iter() {
+                    match (arg.contains(&['$', '`', '\\', '!', '"']), // Things that need single quotes
+                           arg.contains('\''),
+                           arg.contains(&[' ', '<', '>', '#', '^', ';', '*', '&', '|', '(', ')', '{', '}', '\n'])) // things that only need double quotes
+                    {
+                        (true,  false, _)     => cmd.extend(["'", arg, "' "]),
+                        (false, true,  _) |
+                        (false, false, true)  => cmd.extend(["\"", arg, "\" "]),
+                        (true,  true,  _)     => cmd.extend(["'", &arg.replace('\'', "'\"'\"'"), "' "]),
+                        (false, false, false) => cmd.extend([arg, " "]),
+                    }
+                }
+                cmd.trim_end().into()
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -291,13 +323,13 @@ mod tests {
     #[tokio::test]
     async fn integration() {
         let (db, db_path) = test_db().await;
-        let cmd = "echo a simple test";
+        let cmd = Command::Shell("echo a simple test".into());
         std::env::set_var("MY_ENV_VAR", "some value");
         let db_path = db_path.path().to_path_buf();
         let _serve = tokio::spawn({ let db = db.clone(); async move { serve::serve(32923, &db, true).await.unwrap(); }});
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
-            let job = crate::client::Job::new("http://127.0.0.1:32923/".parse().unwrap(), "test-user", "My Job", Some("my-id"), None, cmd).await.unwrap();
+            let job = crate::client::Job::new("http://127.0.0.1:32923/".parse().unwrap(), "test-user", "My Job", Some("my-id"), None, &cmd).await.unwrap();
             let log_path = sqlx::query!("SELECT log FROM run WHERE client_id = ?", job.id).fetch_one(db.sql()).await.expect("SELECT log FROM run").log;
             job.run().await.expect("job ran");
             assert_file_eq!(&db_path.join(&log_path), "a simple test\n");
@@ -314,7 +346,7 @@ mod tests {
             assert_eq!(runs[0].status, Some(serve::ExitStatus::Exited(0)));
 
             let run: serve::RunInfoFull = serde_json::from_str(&job.api.get(&runs[0].url.as_ref().expect("runs[0].url")).await.expect("GET run")).expect("GET run parse");
-            assert_eq!(run.cmd, cmd);
+            assert_eq!(run.cmd, cmd.to_string());
             assert!(run.env.contains(&(MaybeUTF8::new(OsString::from("MY_ENV_VAR")), MaybeUTF8::new(OsString::from("some value")))));
             assert_eq!(run.log.expect("run.log"), "a simple test\n");
 
@@ -327,12 +359,12 @@ mod tests {
     async fn timeout() {
         trace!("Testing");
         let (db, db_path) = test_db().await;
-        let cmd = "sleep 10";
+        let cmd = Command::Exec(vec!["sleep".into(), "10".into()]);
         let db_path = db_path.path().to_path_buf();
         let _serve = tokio::spawn({let db = db.clone(); async move { serve::serve(32924, &db, true).await.unwrap(); }});
         let _client = tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await; // HACK
-            let job = crate::client::Job::new("http://127.0.0.1:32924/".parse().unwrap(), "test-user", "My Bad Job", None, Some(std::time::Duration::from_millis(1500)), cmd).await.unwrap();
+            let job = crate::client::Job::new("http://127.0.0.1:32924/".parse().unwrap(), "test-user", "My Bad Job", None, Some(std::time::Duration::from_millis(1500)), &cmd).await.unwrap();
             let log_path = sqlx::query!("SELECT log FROM run WHERE client_id = ?", job.id).fetch_one(db.sql()).await.expect("SELECT log FROM run").log;
             job.run().await.expect("job ran");
             assert_eq!(db_path.join(&log_path).exists(), false);
