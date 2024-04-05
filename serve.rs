@@ -5,7 +5,8 @@ use std::io::Read;
 use std::path::{Path,PathBuf};
 
 use rocket::http::ContentType;
-use rocket::response::{Debug,Redirect};
+use rocket::request::Request;
+use rocket::response::{Debug,Redirect, Responder, Response};
 use rocket::serde::{Serialize, Deserialize, json::Json};
 use rocket::State;
 
@@ -219,6 +220,8 @@ pub struct RunInfo {
     pub progress: Option<Progress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_len:  Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_url:  Option<String>,
 }
 
 impl RunInfo {
@@ -232,6 +235,7 @@ impl RunInfo {
             id:       run.run_id.clone(),
             log_len:  Some(run.log_len()),
             url:      Some(uri!(get_run(&run.job.user, &run.job.id, &run.run_id, _)).to_string()),
+            log_url:  Some(uri!(get_run_log(&run.job.user, &run.job.id, &run.run_id, _)).to_string()),
         })
     }
 }
@@ -280,6 +284,7 @@ pub struct RunInfoFull {
     pub run_info: RunInfo,
     pub cmd:      String,
     pub env:      Vec<(MaybeUTF8, MaybeUTF8)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub log:      Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seek:     Option<u64>,
@@ -308,9 +313,16 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
     let run = job.run(run_id).await.map_err(|e| wrap(&*e, "run"))?;
     let info = run.info().await.map_err(|e| wrap(&*e, "info"))?;
-    let (log, log_len) = match run.log(seek).map_err(|e| wrap(&*e, "log"))? {
-        Some((log, log_len)) => (Some(log), Some(log_len)),
-        None => (None, None),
+    let (log, log_len, log_url) = match run.log_len() {
+        0                     => (None, None, None),
+        log_len @ 1...300_000 => { // If it's short enough, give the log back inline
+            use tokio::io::AsyncReadExt;
+            let Some(mut log_file) = run.log_file(seek).await.map_err(|e| wrap(&*e, "log"))? else { Err(Debug(format!("log_len() was {} but log() said None!", log_len).into()))? };
+            let mut log = String::with_capacity((log_len as usize).saturating_sub(seek.unwrap_or(0) as usize));
+            log_file.read_to_string(&mut log).await.map_err(|e| wrap(&e, "log"))?;
+            (Some(log), Some(log_len), Some(uri!(get_run_log(user, job_id, run_id, _)).to_string()))
+        },
+        log_len               => (None, Some(log_len), Some(uri!(get_run_log(user, job_id, run_id, _)).to_string())),
     };
     Ok(Json(RunInfoFull{
         run_info: RunInfo {
@@ -322,12 +334,41 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
             id:       run.run_id.clone(),
             url:      None,
             log_len:  log_len,
+            log_url:  log_url,
         },
         cmd:      info.cmd,
         env:      info.env,
         log:      log,
         seek:     seek,
     }))
+}
+
+struct LogStreamer {
+    log: tokio::fs::File,
+    len: usize,
+    seek: usize,
+}
+
+impl<'r> Responder<'r, 'static> for LogStreamer {
+    fn respond_to(self, req: &'r Request<'_>) -> rocket::response::Result<'static> {
+        Response::build()
+            .header(ContentType::Plain)
+            .raw_header("x-log-length", format!("{}", self.len))
+            .sized_body(Some(self.len.saturating_sub(self.seek)), self.log)
+            .ok()
+    }
+}
+
+#[get("/job/<user>/<job_id>/run/<run_id>/log?<seek>")]
+#[tracing::instrument(name="GET /job/<user>/<job_id>/run/<run_id>/log?<seek>", skip(db))]
+async fn get_run_log(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: Option<u64>) -> WebResult<Option<LogStreamer>> {
+    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    let run = job.run(run_id).await.map_err(|e| wrap(&*e, "run"))?;
+    let info = run.info().await.map_err(|e| wrap(&*e, "info"))?;
+    Ok(match run.log_file(seek).await.map_err(|e| wrap(&*e, "log"))? {
+        Some(file) => Some(LogStreamer { log: file, len: run.log_len() as usize, seek: seek.unwrap_or(0) as usize }),
+        None => None,
+    })
 }
 
 #[get("/job/<user>/<job_id>/success?<before>&<after>")]
@@ -351,7 +392,7 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"));
     let mut routes = routes![index, files, docs_index, docs,
                              run_create, run_heartbeat, run_stdout, run_stderr, run_complete, // client endpoints
-                             jobs, recent_runs, get_runs, get_run, get_success];              // web app endpoints
+                             jobs, recent_runs, get_runs, get_run, get_run_log, get_success];   // web app endpoints
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
         .mount("/", routes)

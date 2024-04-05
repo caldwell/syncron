@@ -60,6 +60,12 @@ async function fetch_json(url, options={}) {
     return resp.json()
 }
 
+async function fetch_text(url, options={}) {
+    let resp = await fetch(url, options)
+    if (!resp.ok) throw("Response failed: "+resp.statusText)
+    return resp.text()
+}
+
 const svg = {
     Success: ["svg", { xmlns: "http://www.w3.org/2000/svg", width: "32", height: "32", fill: "currentColor", className: "bi bi-check-circle-fill text-success", viewBox: "0 0 16 16" },
               ["path", { d: "M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z" }]],
@@ -402,7 +408,10 @@ function log_view({run_url, job}) {
     React.useEffect(() => {
         let last_len;
         async function reload() {
-            let new_run = await fetch_json(url_with(run_url, last_len ? { seek: last_len } : {}) );
+            let new_run = await fetch_json(url_with(run_url, last_len ? { seek: last_len } : {}), { signal: abort.signal } );
+            if (!new_run.log && new_run.log_url)
+                new_run.log = await fetch_text(url_with(new_run.log_url, last_len ? { seek: last_len } : {}), { signal: abort.signal });
+            if (abort.signal.aborted) return;
             set_atbottom(Math.abs(window.scrollMaxY - window.scrollY) < 5); // Hack. This is as close as I can come to right before react begins to render
             console.log(`scroll at load: atbottom:${atbottom}, scrollY:${window.scrollY}, scrollYMax:${window.scrollMaxY}`);
             set_run((old_run) => {
@@ -412,11 +421,14 @@ function log_view({run_url, job}) {
             last_len = new_run.log_len;
             if (new_run.status != null) // Stop refreshing once the run is finished
                 clearInterval(id);
+            else if (id === undefined)
+                id = setInterval(reload, 1*1000);
         }
 
+        let id;
+        let abort = new AbortController();
         reload();
-        let id = setInterval(reload, 1*1000);
-        return () => clearInterval(id);
+        return () => { abort.abort(); clearInterval(id); }
     }, [run_url]);
 
     React.useLayoutEffect(() => {
