@@ -560,14 +560,9 @@ impl Run {
         self.log_path().metadata().map(|m| m.len()).unwrap_or(0)
     }
 
-    pub async fn log_file(&self, seek: Option<u64>) -> Result<Option<tokio::fs::File>, Box<dyn Error>> {
-        use tokio::io::AsyncSeekExt;
+    pub async fn log_file(&self) -> Result<Option<tokio::fs::File>, Box<dyn Error>> {
         if !self.log_path().is_file() { return Ok(None) }
-        let mut f = tokio::fs::File::open(&self.log_path()).await?;
-        if let Some(bytes) = seek {
-            f.seek(tokio::io::SeekFrom::Start(bytes)).await?;
-        }
-        Ok(Some(f))
+        Ok(Some(tokio::fs::File::open(&self.log_path()).await?))
     }
 }
 

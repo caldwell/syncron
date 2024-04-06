@@ -235,7 +235,7 @@ impl RunInfo {
             id:       run.run_id.clone(),
             log_len:  Some(run.log_len()),
             url:      Some(uri!(get_run(&run.job.user, &run.job.id, &run.run_id, _)).to_string()),
-            log_url:  Some(uri!(get_run_log(&run.job.user, &run.job.id, &run.run_id, _)).to_string()),
+            log_url:  Some(uri!(get_run_log(&run.job.user, &run.job.id, &run.run_id, _, _)).to_string()),
         })
     }
 }
@@ -317,12 +317,13 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
         0                     => (None, None, None),
         log_len @ 1...300_000 => { // If it's short enough, give the log back inline
             use tokio::io::AsyncReadExt;
-            let Some(mut log_file) = run.log_file(seek).await.map_err(|e| wrap(&*e, "log"))? else { Err(Debug(format!("log_len() was {} but log() said None!", log_len).into()))? };
-            let mut log = String::with_capacity((log_len as usize).saturating_sub(seek.unwrap_or(0) as usize));
-            log_file.read_to_string(&mut log).await.map_err(|e| wrap(&e, "log"))?;
-            (Some(log), Some(log_len), Some(uri!(get_run_log(user, job_id, run_id, _)).to_string()))
+            let Some(mut log_file) = run.log_file().await.map_err(|e| wrap(&*e, "log"))? else { Err(Debug(format!("log_len() was {} but log() said None!", log_len).into()))? };
+            let (total, length) = seek_and_limit(&mut log_file, seek, None).await.map_err(|e| wrap(&*e, "log seek"))?;
+            let mut log = String::with_capacity(length as usize);
+            log_file.read_to_string(&mut log).await.map_err(|e| wrap(&e, "log read"))?;
+            (Some(log), Some(log_len), Some(uri!(get_run_log(user, job_id, run_id, _, _)).to_string()))
         },
-        log_len               => (None, Some(log_len), Some(uri!(get_run_log(user, job_id, run_id, _)).to_string())),
+        log_len               => (None, Some(log_len), Some(uri!(get_run_log(user, job_id, run_id, _, _)).to_string())),
     };
     Ok(Json(RunInfoFull{
         run_info: RunInfo {
@@ -345,30 +346,64 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
 
 struct LogStreamer {
     log: tokio::fs::File,
-    len: usize,
-    seek: usize,
+    len: u64,
+    total: u64,
 }
 
 impl<'r> Responder<'r, 'static> for LogStreamer {
-    fn respond_to(self, req: &'r Request<'_>) -> rocket::response::Result<'static> {
+    fn respond_to(self, _req: &'r Request<'_>) -> rocket::response::Result<'static> {
         Response::build()
             .header(ContentType::Plain)
-            .raw_header("x-log-length", format!("{}", self.len))
-            .sized_body(Some(self.len.saturating_sub(self.seek)), self.log)
+            .raw_header("x-log-length", format!("{}", self.total))
+            .sized_body(self.len as usize, self.log)
             .ok()
     }
 }
 
-#[get("/job/<user>/<job_id>/run/<run_id>/log?<seek>")]
-#[tracing::instrument(name="GET /job/<user>/<job_id>/run/<run_id>/log?<seek>", skip(db))]
-async fn get_run_log(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: Option<u64>) -> WebResult<Option<LogStreamer>> {
+#[get("/job/<user>/<job_id>/run/<run_id>/log?<seek>&<limit>")]
+#[tracing::instrument(name="GET /job/<user>/<job_id>/run/<run_id>/log?<seek>&<limit>", skip(db))]
+async fn get_run_log(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: Option<u64>, limit: Option<i64>) -> WebResult<Option<LogStreamer>> {
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
     let run = job.run(run_id).await.map_err(|e| wrap(&*e, "run"))?;
-    let info = run.info().await.map_err(|e| wrap(&*e, "info"))?;
-    Ok(match run.log_file(seek).await.map_err(|e| wrap(&*e, "log"))? {
-        Some(file) => Some(LogStreamer { log: file, len: run.log_len() as usize, seek: seek.unwrap_or(0) as usize }),
-        None => None,
-    })
+    let Some(mut log) = run.log_file().await.map_err(|e| wrap(&*e, "log"))? else {
+        return Ok(None);
+    };
+    let (total, len) = seek_and_limit(&mut log, seek, limit).await.map_err(|e| wrap(&*e, "seek_and_limit"))?;
+    Ok(Some(LogStreamer { log, total, len }))
+}
+
+pub (crate) async fn seek_and_limit(f: &mut tokio::fs::File, seek: Option<u64>, limit: Option<i64>) -> Result<(u64, u64), Box<dyn Error>> {
+    use tokio::io::AsyncSeekExt;
+    let total = f.metadata().await?.len();
+    let (seek, len) = apply_limit(total, seek, limit);
+    f.seek(std::io::SeekFrom::Start(seek)).await?;
+    Ok((total, len))
+}
+
+// Given the length of a file, an optional seek and an optional signed limit:
+// return the computed seek and length of read as a tuple: (seek, len).
+// positive limit means from start--seek won't be changed
+// negative limit means from the end--seek will adjusted such that seek+min(len,limit) == eof.
+// length will always be clamped to limit
+pub fn apply_limit(len: u64, seek: Option<u64>, limit: Option<i64>) -> (u64, u64) {
+    let limit = limit.unwrap_or(i64::MAX);
+    let seek = seek.unwrap_or(0);
+    match (len, seek, limit < 0, limit.abs_diff(0)) {
+        (len, seek, false, limit) => (seek,                                limit.min(len.saturating_sub(seek))), // Positive limit is from the start (which is seek)
+        (len, seek, true,  limit) => (seek.max(len.saturating_sub(limit)), limit.min(len.saturating_sub(seek))), // negative limit is from the end
+    }
+}
+#[cfg(test)] #[test] fn test_apply_limit() {
+    assert_eq!(apply_limit(10, None,    None),      (0, 10));
+    assert_eq!(apply_limit(10, Some(5), None),      (5,  5));
+    assert_eq!(apply_limit(10, None,    Some(3)),   (0,  3));
+    assert_eq!(apply_limit(10, None,    Some(-3)),  (7,  3));
+    assert_eq!(apply_limit(10, None,    Some(13)),  (0, 10));
+    assert_eq!(apply_limit(10, None,    Some(-13)), (0, 10));
+    assert_eq!(apply_limit(10, Some(5), Some(3)),   (5,  3));
+    assert_eq!(apply_limit(10, Some(5), Some(-3)),  (7,  3));
+    assert_eq!(apply_limit(10, Some(5), Some(17)),  (5,  5));
+    assert_eq!(apply_limit(10, Some(5), Some(-17)), (5,  5));
 }
 
 #[get("/job/<user>/<job_id>/success?<before>&<after>")]
