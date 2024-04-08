@@ -404,18 +404,31 @@ function log_view({run_url, job}) {
     let [run, set_run] = React.useState(null);
     let [atbottom, set_atbottom] = React.useState(true);
     let status = run && status_state(run);
+    const LARGE_CHUNK_SIZE = 1*1024*1024;
 
     React.useEffect(() => {
         let last_len;
         async function reload() {
             let new_run = await fetch_json(url_with(run_url, last_len ? { seek: last_len } : {}), { signal: abort.signal } );
-            if (!new_run.log && new_run.log_url)
-                new_run.log = await fetch_text(url_with(new_run.log_url, last_len ? { seek: last_len } : {}), { signal: abort.signal });
+            if (!new_run.log && new_run.log_url) { // If the log is big enough the server won't populate it but _will_ give us a log_url that we can fetch from
+                if (new_run.log_len < 3 * LARGE_CHUNK_SIZE)
+                    new_run.log = await fetch_text(url_with(new_run.log_url, last_len ? { seek: last_len } : {}), { signal: abort.signal });
+                else { // Very large log file. Browsers get tripped up and it starts getting very slow, so only load part of the log in.
+                    if (!last_len) {
+                        new_run.log = [await fetch_text(url_with(new_run.log_url, { limit:  LARGE_CHUNK_SIZE }), { signal: abort.signal }),
+                                       { skip_from: LARGE_CHUNK_SIZE, skip_to: new_run.log_len - LARGE_CHUNK_SIZE },
+                                       await fetch_text(url_with(new_run.log_url, { limit: -LARGE_CHUNK_SIZE }), { signal: abort.signal })];
+                    } else {
+                        // don't need the beginning, just stuff to tack on to the end:
+                        new_run.log   = await fetch_text(url_with(new_run.log_url, { seek: last_len }), { signal: abort.signal });
+                    }
+                }
+            }
             if (abort.signal.aborted) return;
             set_atbottom(Math.abs(window.scrollMaxY - window.scrollY) < 5); // Hack. This is as close as I can come to right before react begins to render
             console.log(`scroll at load: atbottom:${atbottom}, scrollY:${window.scrollY}, scrollYMax:${window.scrollMaxY}`);
             set_run((old_run) => {
-                new_run.log = (old_run?.log||"") + (new_run.log||"");
+                new_run.log = [...(old_run?.log ?? []), ...(typeof new_run.log == "string" ? [new_run.log] : (new_run.log ?? []))];
                 return new_run;
             });
             last_len = new_run.log_len;
@@ -454,6 +467,48 @@ function log_view({run_url, job}) {
         }, [])
     ;
 
+    let load_more = async (whence) => {
+        let skip_index = run.log.findIndex(e => e.skip_from != undefined);
+        if (skip_index < 0) return; // Shouldn't be able to happen
+        let skip = run.log[skip_index];
+        let skipped = skip.skip_to - skip.skip_from;
+        let size = Math.min(skipped, LARGE_CHUNK_SIZE);
+        let chunk = await fetch_text(url_with(run.log_url, { seek: whence == 'start' ? skip.skip_from : skip.skip_to - size,
+                                                             limit: size }));
+        set_run((old_run) => {
+            if (old_run.log[skip_index].skip_from != skip.skip_from ||
+                old_run.log[skip_index].skip_to   != skip.skip_to)    // By the time we loaded the chunk the array had changed behind our back. So just ignore whatever we read.
+                return old_run;
+            let replace;
+            if (skipped == size)
+                replace = [ chunk ];
+            else if (whence == 'start')
+                replace = [ chunk, { skip_from: skip.skip_from + size, skip_to: skip.skip_to } ];
+            else
+                replace = [ { skip_from: skip.skip_from, skip_to: skip.skip_to - size }, chunk ];
+
+            return Object.assign({}, old_run, { log: [].concat(old_run.log.slice(0,skip_index))
+                                                       .concat(replace)
+                                                       .concat(old_run.log.slice(skip_index+1)) });
+        });
+    };
+    let format_log = (parts) => {
+        let after_skip;
+        return parts.map((part,i) => {
+            if (part.skip_from != undefined) {
+                after_skip = i+1;
+                return ["span",
+                        "\n",
+                        ["button", "Load 1MB more from the start of the log", { onClick: prevent_default(() => load_more('start')) }],
+                        "\n",
+                        ["em", `    ... ${human_bytes(part.skip_to-part.skip_from)} skipped ...\n`],
+                        ["button", "Load 1MB more from the end of the log", { onClick: prevent_default(() => load_more('end')) }],
+                        ]
+            } else
+                return ansi_to_html(i == after_skip ? part.replace(/^.*$/m, '') : part) // Replace the partial line at the start of a chunk, it's ugly
+        })
+    };
+
     return jsr(card("log-view",
                     [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${run ? localiso(run.date) : "…"}`],
                     !run ? [loading]
@@ -463,6 +518,6 @@ function log_view({run_url, job}) {
                              ["table",
                               ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
                             ["h2", "Output:"],
-                            ["pre", ansi_to_html(run.log), "\n", status == 'Running' ? ["div", { className: "dot-flashing" }] : human_status(run.status)]
+                            ["pre", ...format_log(run.log||[]), "\n", status == 'Running' ? ["div", { className: "dot-flashing" }] : human_status(run.status)]
                            ]));
 }
