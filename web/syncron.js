@@ -148,12 +148,12 @@ function loading({}) {
                 ["span",  { className: "visually-hidden" }, "Loading..." ]]);
 }
 
-function card(kind, title, body) {
-    return ["div", { className: `card ${kind}` },
-            ["div", { className: "card-header" },
-             ["h1", title]],
-            ["div", { className: "card-body" },
-             body]];
+function card({kind, title, children}) {
+    return jsr(["div", { className: `card ${kind}` },
+                ["div", { className: "card-header" },
+                 ["h1", title]],
+                ["div", { className: "card-body" },
+                 children]]);
 }
 
 function synced_interval(period, offset, callback) {
@@ -201,8 +201,7 @@ function jobs_view({jobs_url, runs_url, set_view}) {
 
     use_interval_loader(1*1000, running.length > 0 && url_with(runs_url, running.map(r => ["id", r.unique_id])), (updated) => update_runs(updated));
 
-    return jsr(card("jobs-view",
-                    "Jobs",
+    return jsr([card, { kind: "jobs-view", title: "Jobs" },
                     jobs == null ? [loading]
                                  : [["table", { className: "jobs" },
                                      ["thead",
@@ -234,7 +233,7 @@ function jobs_view({jobs_url, runs_url, set_view}) {
                                       }),
                                      ]],
                                     jobs.length == 0 && [['h3', "There are no jobs."], ["a", { href: "/docs/adding-jobs" }, "How do I add jobs?"]],
-                                   ]));
+                                   ]]);
 }
 
 function success_chart({success_url, last_run_at, last_run_status}) {
@@ -368,8 +367,7 @@ function runs_view({runs_url, job, set_view}) {
         set_runs((old_runs) => new_runs.concat(old_runs || []));
     };
 
-    return jsr(card("runs-view",
-                    `${job.user} / ${job.name}`,
+    return jsr([card, { kind: "runs-view", title: `${job.user} / ${job.name}` },
                     runs == null ? [loading]
                                  : [React.Fragment,
                                     ["table", { className: "jobs" },
@@ -396,7 +394,7 @@ function runs_view({runs_url, job, set_view}) {
                                     ["button", "Load 100 more entries", { onClick: prevent_default(() => load_more(100)) }],
                                     ["button", "Load 1000 more entries", { onClick: prevent_default(() => load_more(1000)) }],
                                     ["button", "Load all the entries", { onClick: prevent_default(() => load_more()) }],
-                                   ]));
+                                   ]]);
 }
 
 function log_view({run_url, job}) {
@@ -509,8 +507,8 @@ function log_view({run_url, job}) {
         })
     };
 
-    return jsr(card("log-view",
-                    [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${run ? localiso(run.date) : "…"}`],
+    return jsr([card, { kind: "log-view",
+                        title: [React.Fragment, svg[status], ` ${job.user} / ${job.name} on ${run ? localiso(run.date) : "…"}`] },
                     !run ? [loading]
                          : [["h2", "Command:"], ["code", run.cmd],
                             ["div", { className: `env ${show_env ? "show" : "hide"}` },
@@ -519,5 +517,5 @@ function log_view({run_url, job}) {
                               ["tbody", run.env.map(([k,v]) => ["tr", ["td", ["code", k]], ["td", ["code", v]]])]]],
                             ["h2", "Output:"],
                             ["pre", ...format_log(run.log||[]), "\n", status == 'Running' ? ["div", { className: "dot-flashing" }] : human_status(run.status)]
-                           ]));
+                           ]]);
 }
