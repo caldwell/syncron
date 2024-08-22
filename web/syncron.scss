@@ -40,9 +40,9 @@ nav.navbar {
 
     tbody {@extend .table-group-divider;}
 
-    .Success {@extend .table-success;}
-    .Failure {@extend .table-danger;}
-    .Running {@extend .table-info;}
+    tr.Success {@extend .table-success;}
+    tr.Failure {@extend .table-danger;}
+    tr.Running {@extend .table-info;}
 
     button { @extend .btn;}
     button.Success {@extend .btn-success;}
@@ -128,6 +128,18 @@ nav.navbar {
 }
 nav {
     --bs-breadcrumb-divider: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><path d='M2.5 0L1 1.5 3.5 4 1 6.5 2.5 8l4-4-4-4z' fill='%23ffffff'/></svg>");
+}
+
+button {
+    @extend .btn;
+    @extend .btn-primary;
+}
+
+.load-buttons {
+    @extend .d-grid;
+    @extend .gap-2;
+    @extend .d-md-flex;
+    @extend .justify-content-md-start;
 }
 
 :root {
