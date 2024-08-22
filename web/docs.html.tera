@@ -7,16 +7,20 @@
     <link href="/syncron.css" rel="stylesheet">
     <style>
 pre {
-  border: 1px solid #eeeeee;
-  background-color: #eee;
+  border: 1px solid var(--bs-body-bg);
+  background-color: var(--bs-body-bg);
   border-radius: .5rem;
   padding: .3rem;
   overflow-x: auto;
 }
 
+img {
+  filter: var(--dark-invert);
+}
+
 p > code {
   border-radius: .3rem;
-  background-color: #eee;
+  background-color: var(--bs-body-bg);
   padding: .28em .5em .15em;
 }
 #index {

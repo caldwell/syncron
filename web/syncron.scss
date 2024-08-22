@@ -1,15 +1,24 @@
 $primary: #32957E;
 $info: #5b4cae;
-$success: #48ab61;
+$info: hsl(249, 39%, 49%);
+$success: hsl(135, 41%, 48%);
 $warning: #c59b29;
-$danger: #f44336;
-
+$danger: hsl(4, 90%, 58%);
 $light: rgb(182, 185, 180);
 $dark: #221c41;
 
+$color-mode-type: media-query;
+
+$table-success-dark: hsl(135, 41%, 10%);
+$table-danger-dark: hsl(4, 90%, 10%);
+$table-info-dark: hsl(249, 39%, 10%);
+$button-success-dark: hsl(135, 41%, 18%);
+$button-danger-dark: hsl(4, 90%, 18%);
+$button-info-dark: hsl(249, 39%, 18%);
 @import "../node_modules/bootstrap/scss/bootstrap";
 
 body {
+    @include color-mode(dark);
     color: $dark;
     background-color: $light;
     @include color-scheme(dark) {
@@ -151,4 +160,39 @@ button {
 $dot-color: $dark;
 @import "dot-flashing.scss";
 
-@import "ansi.scss"
+@import "ansi.scss";
+
+@media (prefers-color-scheme: dark) {
+    $dark: #221c41;
+    $light: rgb(182, 185, 180);
+
+    .log-view .env.hide h2::after, .log-view .env.hide .h2::after {
+        color: var(--disclosure-color);
+    }
+    .container  .card {
+        --bs-card-bg: #0f0c1e;
+        color: $light;
+    }
+    :root {
+        --disclosure-color: rgb(182, 185, 180);
+    }
+
+    @include table-variant(success-dark, $table-success-dark);
+    @include table-variant(danger-dark,  $table-danger-dark);
+    @include table-variant(info-dark,    $table-info-dark);
+
+    .jobs tr.Failure { @extend .table-danger-dark; }
+    .jobs tr.Success { @extend .table-success-dark; }
+    .jobs tr.Running { @extend .table-info-dark; }
+
+    .table, .log-view table, .jobs {
+        --bs-table-color: rgb(182, 185, 180);
+    }
+
+    .btn-success-dark { @include button-variant($button-success-dark, $button-success-dark, $hover-background: lighten($button-success-dark, 10%), $hover-border: lighten($button-success-dark, 10%), ); }
+    .btn-danger-dark  { @include button-variant($button-danger-dark,  $button-danger-dark,  $hover-background: lighten($button-danger-dark,  10%), $hover-border: lighten($button-danger-dark,  10%), ); }
+    .btn-info-dark    { @include button-variant($button-info-dark,    $button-info-dark,    $hover-background: lighten($button-info-dark,    10%), $hover-border: lighten($button-info-dark,    10%), ); }
+    .jobs button.Success {@extend .btn-success-dark;}
+    .jobs button.Failure {@extend .btn-danger-dark;}
+    .jobs button.Info    {@extend .btn-info-dark;}
+}
