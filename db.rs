@@ -265,7 +265,7 @@ impl Run {
         let mut transaction = db.sql().begin().await?;
         let run_db_id = sqlx::query!("INSERT INTO run (job_id, client_id, cmd, env, log, start) VALUES (?, ?, ?, ?, ?, ?) RETURNING run_id",
                                      job.job_id, client_id_str, cmd, env_str, log_str, start)
-            .fetch_one(&mut transaction).await?.run_id;
+            .fetch_one(&mut *transaction).await?.run_id;
         transaction.commit().await?;
         let run = Run { run_db_id: run_db_id, job: job, date: date.into(), duration_ms: None, run_id: run_id, client_id: Some(client_id), log_path: log_path };
         trace!("created {:?}", run.client_id);
