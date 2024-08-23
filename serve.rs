@@ -206,6 +206,7 @@ pub struct JobInfo {
     pub latest_run: RunInfo,
     pub runs_url: String,
     pub success_url: String,
+    pub settings_url: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -253,6 +254,7 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
                                 name: job.name.clone(),
                                 runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
                                 success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
+                                settings_url: uri!(get_job_settings(&job.user, &job.id)).to_string(),
                                 latest_run: RunInfo::from_run(&latest_run).await?,
                     })
             }).try_collect().await?))
@@ -273,6 +275,7 @@ async fn recent_runs(db: &State<Db>, after: Option<u64>, id:Option<Vec<u64>>) ->
                             name: run.job.name.clone(),
                             runs_url: uri!(get_runs(&run.job.user, &run.job.id, _, _, _, _)).to_string(),
                             success_url: uri!(get_success(&run.job.user, &run.job.id, _, _)).to_string(),
+                            settings_url: uri!(get_job_settings(&run.job.user, &run.job.id)).to_string(),
                             latest_run: RunInfo::from_run(&run).await?,
                 })
             }).try_collect().await?))
@@ -406,10 +409,24 @@ pub fn apply_limit(len: u64, seek: Option<u64>, limit: Option<i64>) -> (u64, u64
     assert_eq!(apply_limit(10, Some(5), Some(-17)), (5,  5));
 }
 
+
 #[get("/job/<user>/<job_id>/success?<before>&<after>")]
 async fn get_success(db: &State<Db>, user: &str, job_id: &str, before: Option<u64>, after: Option<u64>) -> WebResult<Json<Vec<(i64,Option<bool>)>>> {
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
     Ok(Json(job.successes(before, after).await?))
+}
+
+#[get("/job/<user>/<job_id>/settings")]
+async fn get_job_settings(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<db::JobSettings>> {
+    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    Ok(Json(job.settings))
+}
+
+#[put("/job/<user>/<job_id>/settings", data="<settings>")]
+async fn put_job_settings(db: &State<Db>, user: &str, job_id: &str, settings: Json<db::JobSettings>) -> WebResult<()> {
+    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    job.update_settings(&settings).await?;
+    Ok(())
 }
 
 #[post("/shutdown")]
@@ -426,8 +443,11 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
         .merge(figment::providers::Env::prefixed("SYNCRON_").global())
         .select(figment::Profile::from_env_or("APP_PROFILE", "default"));
     let mut routes = routes![index, files, docs_index, docs,
-                             run_create, run_heartbeat, run_stdout, run_stderr, run_complete, // client endpoints
-                             jobs, recent_runs, get_runs, get_run, get_run_log, get_success];   // web app endpoints
+                             // client endpoints
+                             run_create, run_heartbeat, run_stdout, run_stderr, run_complete,
+                             // web app endpoints
+                             jobs, recent_runs, get_runs, get_run, get_run_log, get_success,
+                             get_job_settings, put_job_settings];
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
         .mount("/", routes)
@@ -435,5 +455,3 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
         .launch().await?;
     Ok(())
 }
-
-

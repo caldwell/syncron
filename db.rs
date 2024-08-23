@@ -53,6 +53,29 @@ pub struct Job {
     pub job_id: i64,
     pub db: Db,
     pub last_progress_json: Option<String>,
+    pub settings: JobSettings,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct JobSettings {
+    #[serde(default)]
+    pub retention: JobRetention,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum JobRetention {
+    #[default]
+    Default,
+    #[serde(untagged)]
+    Custom(RetentionSettings),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+pub struct RetentionSettings {
+    pub time: Option<usize>,
+    pub runs: Option<usize>,
+    pub size: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -112,7 +135,7 @@ impl Job {
         let user_id = user_id(db, user).await?;
         sqlx::query!(r"INSERT INTO job (user_id, id, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", user_id, id, name)
             .execute(db.sql()).await.map_err(|e| wrap(&e, "Job ensure INSERT"))?;
-        let job = sqlx::query!("SELECT job_id, last_progress FROM job WHERE user_id = ? AND id = ?", user_id, id)
+        let job = sqlx::query!("SELECT job_id, last_progress, settings FROM job WHERE user_id = ? AND id = ?", user_id, id)
             .fetch_one(db.sql()).await.map_err(|e| wrap(&e, "Job ensure SELECT"))?;
 
         Ok(Job { db:   db.clone(),
@@ -121,13 +144,14 @@ impl Job {
                  name: name.to_string(),
                  job_id: job.job_id,
                  last_progress_json: job.last_progress,
+                 settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
         })
     }
 
     pub async fn new(db: &Db, user: &str, id: &str) -> Result<Job, Box<dyn Error>> {
         if user.is_empty() || user.contains("/") || user.starts_with(".") { Err(format!("Bad user"))? }
         if id.is_empty()   || id.contains("/")   || id.starts_with(".")   { Err(format!("Bad id"))? }
-        let job = sqlx::query!(r"SELECT j.job_id, j.name, j.last_progress
+        let job = sqlx::query!(r"SELECT j.job_id, j.name, j.last_progress, j.settings as settings
                                    FROM job j
                                    JOIN user u ON u.user_id = j.user_id
                                   WHERE u.name = ? AND j.id = ?",
@@ -139,11 +163,12 @@ impl Job {
                  name:  job.name,
                  job_id: job.job_id,
                  last_progress_json: job.last_progress,
+                 settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
         })
     }
 
     pub async fn from_id(db: &Db, job_id: i64) -> Result<Job, Box<dyn Error>> {
-        let job = sqlx::query!(r"SELECT j.job_id, j.name, u.name as user, j.id, j.last_progress
+        let job = sqlx::query!(r"SELECT j.job_id, j.name, u.name as user, j.id, j.last_progress, j.settings
                                    FROM job j
                                    JOIN user u ON u.user_id = j.user_id
                                   WHERE j.job_id = ?", job_id)
@@ -154,18 +179,21 @@ impl Job {
                  name:  job.name,
                  job_id: job.job_id,
                  last_progress_json: job.last_progress,
+                 settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
         })
     }
 
     pub async fn jobs(db: &Db) -> Result<Vec<Job>, Box<dyn Error>> {
-        Ok(sqlx::query!("SELECT j.job_id, j.id as id, j.name as name, u.name as user, j.last_progress FROM job j JOIN user u ON u.user_id = j.user_id")
+        Ok(sqlx::query!("SELECT j.job_id, j.id as id, j.name as name, u.name as user, j.last_progress, j.settings FROM job j JOIN user u ON u.user_id = j.user_id")
            .fetch_all(db.sql()).await.map_err(|e| wrap(&e, "get jobs"))?.iter()
            .map(|job|  Job { db: db.clone(),
                              user: job.user.clone(),
                              id: job.id.clone(),
                              name: job.name.clone(),
                              job_id: job.job_id,
-                             last_progress_json: job.last_progress.clone() })
+                             last_progress_json: job.last_progress.clone(),
+                             settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
+           })
            .collect())
     }
 
@@ -242,6 +270,12 @@ impl Job {
             Some(ref s) => Some(serde_json::from_str(s).map_err(|e| wrap(&e, &format!("last_progress column corrupt for job {}", self.name)))?),
         })
     }
+
+    pub async fn update_settings(&self, new_settings: &JobSettings) -> Result<(), Box<dyn Error>> {
+        let json = serde_json::to_string(&new_settings)?;
+        sqlx::query!("UPDATE job SET settings = jsonb(?) WHERE job_id = ?", json, self.job_id).execute(self.db.sql()).await?;
+        Ok(())
+    }
 }
 
 impl Run {
@@ -300,7 +334,7 @@ impl Run {
 
     pub async fn most_recent(db: &Db, after: u64) -> Result<Vec<Run>, Box<dyn Error>> {
         let after = after as i64;
-        let run = sqlx::query!(r#"SELECT r.run_id, r.log, r.start, r.end, r.client_id, j.job_id, j.name, u.name as user, j.id, j.last_progress
+        let run = sqlx::query!(r#"SELECT r.run_id, r.log, r.start, r.end, r.client_id, j.job_id, j.name, u.name as user, j.id, j.last_progress, j.settings
                                     FROM run r
                                     JOIN job j  ON r.job_id = j.job_id
                                     JOIN user u ON j.user_id = u.user_id
@@ -312,6 +346,7 @@ impl Run {
                                           job_id: row.job_id,
                                           db: db.clone(),
                                           last_progress_json: row.last_progress.clone(),
+                                          settings: serde_sqlite_jsonb::from_reader(&*row.settings).unwrap_or(JobSettings::default()),
                                     },
                                date: time_from_timestamp_ms(row.start).into(),
                                duration_ms: row.end.and_then(|e| ((e as u64).checked_sub(row.start as u64))),
@@ -325,8 +360,8 @@ impl Run {
     pub async fn runs_from_ids(db: &Db, ids: &[u64]) -> Result<Vec<Run>, Box<dyn Error>> {
         let id_list = ids.iter().map(|id| id.to_string()).intersperse(",".to_string()).collect::<String>();
         #[derive(sqlx::FromRow)]
-        struct Row { run_id: i64, start: i64, end: Option<i64>, client_id: Option<String>, log: String, job_id: i64, name: String, user: String, id: String, last_progress: Option<String> }
-        Ok(sqlx::query_as::<_, Row>(&format!(r#"SELECT r.run_id, r.start, r.end, r.client_id, r.log, j.job_id, j.name, u.name as user, j.id, j.last_progress
+        struct Row { run_id: i64, start: i64, end: Option<i64>, client_id: Option<String>, log: String, job_id: i64, name: String, user: String, id: String, last_progress: Option<String>, settings: Vec<u8> }
+        Ok(sqlx::query_as::<_, Row>(&format!(r#"SELECT r.run_id, r.start, r.end, r.client_id, r.log, j.job_id, j.name, u.name as user, j.id, j.last_progress, j.settings
                                                   FROM run r
                                                   JOIN job j ON r.job_id = j.job_id
                                                   JOIN user u ON j.user_id = u.user_id
@@ -338,6 +373,7 @@ impl Run {
                                          job_id: row.job_id,
                                          db: db.clone(),
                                          last_progress_json: row.last_progress.clone(),
+                                         settings: serde_sqlite_jsonb::from_reader(&*row.settings).unwrap_or(JobSettings::default()),
                                     },
                               date: time_from_timestamp_ms(row.start).into(),
                               duration_ms: row.end.and_then(|e| ((e as u64).checked_sub(row.start as u64))),
