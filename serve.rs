@@ -246,8 +246,8 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
     use rocket::futures::stream::{self, StreamExt, TryStreamExt};
     let jobs = db::Job::jobs(&db).await.map_err(|e| wrap(&*e, "jobs"))?;
     Ok(Json(stream::iter(jobs.iter())
-            .then(async move |job| -> Result<JobInfo, Box<dyn Error>> {
-                    let latest_run = job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))?.unwrap();
+            .then(async move |job: &db::Job| -> Result<JobInfo, Box<dyn Error>> {
+                    let latest_run: db::Run = job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))?.unwrap();
                     Ok(JobInfo{ id:   job.id.clone(),
                                 user: job.user.clone(),
                                 name: job.name.clone(),
@@ -267,7 +267,7 @@ async fn recent_runs(db: &State<Db>, after: Option<u64>, id:Option<Vec<u64>>) ->
         (_, _) => return Err(Debug(Box::<dyn Error + Send + Sync>::from(format!("Need 'after' xor 'id' parameters")))),
     };
     Ok(Json(stream::iter(runs.iter())
-            .then(async move |run| -> Result<JobInfo, Box<dyn Error>> {
+            .then(async move |run: &db::Run| -> Result<JobInfo, Box<dyn Error>> {
                 Ok(JobInfo{ id:   run.job.id.clone(),
                             user: run.job.user.clone(),
                             name: run.job.name.clone(),
