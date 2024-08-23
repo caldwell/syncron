@@ -55,11 +55,6 @@ pub struct Job {
     pub last_progress_json: Option<String>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct JobInfo {
-    pub name: String,
-}
-
 #[derive(Debug)]
 pub struct Run {
     pub job: Job,
