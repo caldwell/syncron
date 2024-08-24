@@ -209,6 +209,26 @@ pub struct JobInfo {
     pub settings_url: String,
 }
 
+impl JobInfo {
+    pub async fn from_job(job: &db::Job, latest_run:Option<&db::Run>) -> Result<JobInfo, Box<dyn Error>> {
+        Ok(JobInfo{
+            id:   job.id.clone(),
+            user: job.user.clone(),
+            name: job.name.clone(),
+            runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
+            success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
+            settings_url: uri!(get_job_settings(&job.user, &job.id)).to_string(),
+            latest_run: match latest_run {
+                Some(r) => RunInfo::from_run(r).await?,
+                None => {
+                    let r = job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))?.unwrap();
+                    RunInfo::from_run(&r).await?
+                },
+            }
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RunInfo {
     pub unique_id: i64,
@@ -248,15 +268,7 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
     let jobs = db::Job::jobs(&db).await.map_err(|e| wrap(&*e, "jobs"))?;
     Ok(Json(stream::iter(jobs.iter())
             .then(async move |job: &db::Job| -> Result<JobInfo, Box<dyn Error>> {
-                    let latest_run: db::Run = job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))?.unwrap();
-                    Ok(JobInfo{ id:   job.id.clone(),
-                                user: job.user.clone(),
-                                name: job.name.clone(),
-                                runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
-                                success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
-                                settings_url: uri!(get_job_settings(&job.user, &job.id)).to_string(),
-                                latest_run: RunInfo::from_run(&latest_run).await?,
-                    })
+                    Ok(JobInfo::from_job(&job, None).await?)
             }).try_collect().await?))
 }
 
@@ -270,14 +282,7 @@ async fn recent_runs(db: &State<Db>, after: Option<u64>, id:Option<Vec<u64>>) ->
     };
     Ok(Json(stream::iter(runs.iter())
             .then(async move |run: &db::Run| -> Result<JobInfo, Box<dyn Error>> {
-                Ok(JobInfo{ id:   run.job.id.clone(),
-                            user: run.job.user.clone(),
-                            name: run.job.name.clone(),
-                            runs_url: uri!(get_runs(&run.job.user, &run.job.id, _, _, _, _)).to_string(),
-                            success_url: uri!(get_success(&run.job.user, &run.job.id, _, _)).to_string(),
-                            settings_url: uri!(get_job_settings(&run.job.user, &run.job.id)).to_string(),
-                            latest_run: RunInfo::from_run(&run).await?,
-                })
+                Ok(JobInfo::from_job(&run.job, Some(&run)).await?)
             }).try_collect().await?))
 }
 
