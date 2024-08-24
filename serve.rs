@@ -208,6 +208,7 @@ pub struct JobInfo {
     pub runs_url: String,
     pub success_url: String,
     pub settings_url: String,
+    pub prune_url: String,
 }
 
 impl JobInfo {
@@ -220,6 +221,7 @@ impl JobInfo {
             runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
             success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
             settings_url: uri!(get_job_settings(&job.user, &job.id)).to_string(),
+            prune_url: uri!(get_prune(&job.user, &job.id)).to_string(),
             latest_run: match latest_run {
                 Some(r) => RunInfo::from_run(r).await?,
                 None => {
@@ -442,6 +444,18 @@ async fn put_job_settings(db: &State<Db>, user: &str, job_id: &str, settings: Js
     Ok(())
 }
 
+#[get("/job/<user>/<job_id>/prune")]
+async fn get_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<Vec<db::Pruned>>> {
+    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    Ok(Json(job.prune_dry_run().await?))
+}
+
+#[post("/job/<user>/<job_id>/prune")]
+async fn post_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<Vec<db::Pruned>>> {
+    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    Ok(Json(job.prune().await?))
+}
+
 #[post("/shutdown")]
 #[tracing::instrument(name="POST /shutdown", skip_all)]
 fn shutdown(shutdown: rocket::Shutdown) -> &'static str {
@@ -460,7 +474,7 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
                              run_create, run_heartbeat, run_stdout, run_stderr, run_complete,
                              // web app endpoints
                              jobs, recent_runs, get_job, get_runs, get_run, get_run_log, get_success,
-                             get_job_settings, put_job_settings];
+                             get_job_settings, put_job_settings, get_prune, post_prune];
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
         .mount("/", routes)
