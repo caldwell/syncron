@@ -688,3 +688,30 @@ impl Settings {
         })
     }
 }
+
+pub fn human_bytes(bytes: usize) -> String {
+    if bytes == 0 { return "0B".to_string() };
+    let bytes_f = bytes as f64;
+    let exp = bytes_f.log(1024.0).floor();
+    let exact = bytes % 1024usize.pow(exp as u32) == 0;
+    let s = bytes_f / 1024f64.powi(exp as i32);
+    format!("{:.*}{}", if exact {0} else {2}, s, ["B","KB","MB","GB","TB","PB","EB"][exp as usize])
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+
+    #[test]
+    fn test_human_bytes() {
+        assert_eq!(human_bytes(0),   "0B");
+        assert_eq!(human_bytes(10),   "10B");
+        assert_eq!(human_bytes(1023), "1023B");
+        assert_eq!(human_bytes(1024), "1KB");
+        assert_eq!(human_bytes(1025), "1.00KB");
+        assert_eq!(human_bytes(1024*1024), "1MB");
+        assert_eq!(human_bytes(1500*1024*1024), "1.46GB");
+    }
+}
