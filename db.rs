@@ -71,7 +71,7 @@ pub enum JobRetention {
     Custom(RetentionSettings),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default, Copy, PartialEq)]
 pub struct RetentionSettings {
     pub max_age:  Option<usize>,
     pub max_runs: Option<usize>,
@@ -111,6 +111,14 @@ pub struct ProgressStat {
     pub bytes_pct: f64,
     pub timestamp_ms: i64,
     pub bytes: usize,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Pruned {
+    pub job_id: i64,
+    pub run_id: String,
+    pub size: usize,
+    pub reason: String,
 }
 
 pub fn slug(st: &str) -> String {
@@ -276,6 +284,45 @@ impl Job {
         sqlx::query!("UPDATE job SET settings = jsonb(?) WHERE job_id = ?", json, self.job_id).execute(self.db.sql()).await?;
         Ok(())
     }
+
+    async fn _prune(&self, dry_run: bool) -> Result<Vec<Pruned>, Box<dyn Error>> {
+        let retention = match self.settings.retention {
+            JobRetention::Custom(retention) => retention,
+            JobRetention::Default => Settings::load(&self.db).await?.retention,
+        };
+        debug!("Retention settings for {}: {:?}", self.name, retention);
+        if retention == RetentionSettings::default() { return Ok(vec![]) }
+        let runs = self.runs(None, None, None).await?;
+        debug!("Considering {} [{} runs]", self.name, runs.len());
+        let mut total = 0;
+        let sizes: Vec<usize> = runs.iter().map(|r| { total += r.log_len() as usize; total }).collect();
+        let now = chrono::Local::now();
+        let mut pruned = vec![];
+        for (n, (run, total_size)) in runs.iter().zip(sizes.iter()).enumerate().rev() {
+            let (reason, will_prune) = match (retention.max_age.map(|t| t as i64), now.signed_duration_since(run.date).num_days(),
+                                              retention.max_runs,
+                                              retention.max_size, *total_size) {
+                (Some(max), age, _,         _,         _)    if age  > max => (format!("exceeded max age  ({age} > {max})",  ), true),
+                (_,         _,   Some(max), _,         _)    if n    > max => (format!("exceeded max runs ({n} > {max})",    ), true),
+                (_,         _,   _,         Some(max), size) if size > max => (format!("exceeded max size ({size} > {max})", ), true),
+                _ => (format!(""), false),
+            };
+            if will_prune {
+                let size = run.log_len() as usize;
+                debug!("Pruning {}/{}: {}", self.name, run.run_id, reason);
+                if let Err(e) = if dry_run { Ok(()) } else { run.delete().await } {
+                    warn!("Couldn't delete {}/{}: {}", self.name, run.run_id, e);
+                } else {
+                    pruned.push(Pruned { job_id: self.job_id, run_id: run.run_id.clone(), size, reason });
+                }
+            } else {
+                debug!("Not Pruning {}/{}: {:?},{:?} {:?},{:?} {:?},{:?}", self.name, run.run_id, retention.max_age, now.signed_duration_since(run.date).num_days(), retention.max_runs, n, retention.max_size, total_size);
+            }
+        }
+        Ok(pruned)
+    }
+    pub async fn prune_dry_run(&self) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(true).await }
+    pub async fn prune(&self)         -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(false).await }
 }
 
 impl Run {
@@ -594,6 +641,23 @@ impl Run {
     pub async fn log_file(&self) -> Result<Option<tokio::fs::File>, Box<dyn Error>> {
         if !self.log_path().is_file() { return Ok(None) }
         Ok(Some(tokio::fs::File::open(&self.log_path()).await?))
+    }
+
+    pub async fn delete(&self) -> Result<(), Box<dyn Error>> {
+        let path = self.log_path();
+        if path.is_file() {
+            tokio::fs::remove_file(&path).await?;
+            // Because we nest log dirs to keep direntry counts down ("2024/8/9/2024-08-09T00:00:01.384-07:00/log"),
+            // after we've deleted the log file try to delete parent directories until we can't any more.
+            let mut path = path.parent();
+            loop {
+                let Some(p) = path else { break };
+                if tokio::fs::remove_dir(p).await.is_err() { break }
+                path = p.parent();
+            }
+        }
+        sqlx::query!("DELETE FROM run WHERE run_id = ?", self.run_db_id).execute(self.job.db.sql()).await?;
+        Ok(())
     }
 }
 
