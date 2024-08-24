@@ -606,3 +606,21 @@ pub fn time_string_from_timestamp_ms(timestamp_ms: i64) -> String {
     time_from_timestamp_ms(timestamp_ms).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
+#[derive(Debug, Clone)]
+pub struct Settings {
+    pub db: Db,
+    pub retention: RetentionSettings,
+}
+
+impl Settings {
+    pub async fn load(db: &Db) -> Result<Settings, Box<dyn Error>> {
+        Ok(Settings {
+            db: db.clone(),
+            retention: {
+                if let Some(rows) = sqlx::query!("SELECT value AS retention FROM settings WHERE key = 'retention'").fetch_optional(db.sql()).await? {
+                    serde_sqlite_jsonb::from_reader(&*rows.retention).unwrap_or(RetentionSettings::default())
+                } else { RetentionSettings::default() }
+            },
+        })
+    }
+}
