@@ -579,6 +579,13 @@ impl Run {
         trace!("Completing {}/{}/{} with {:?}", self.job.user, self.job.name, self.run_id, status);
         sqlx::query!("UPDATE run SET status = ?, success = ?, end = ?, client_id = NULL WHERE run_id = ?", status_json, success, end, self.run_db_id).execute(self.job.db.sql()).await?;
         self.complete_progress(end.unwrap()).await?;
+
+        match self.job.prune().await {
+            Ok(pruned) if pruned.len() > 0 => { for p in pruned.iter() { info!("{}/{}: pruned {} ({:>5}): {}", self.job.user, self.job.name, p.run_id, human_bytes(p.size), p.reason) }
+                                                info!("{}/{}: total pruned: {}", self.job.user, self.job.name, human_bytes(pruned.iter().map(|p| p.size).max().unwrap())); },
+            Ok(_)                          => {/* Pruned nothing, so nothing to log */},
+            Err(e)                         => warn!("{}/{}: error pruning: {}", self.job.user, self.job.name, e),
+        }
         Ok(())
     }
 
