@@ -204,6 +204,7 @@ pub struct JobInfo {
     pub name: String,
     //pub runs: Option<Url>,
     pub latest_run: RunInfo,
+    pub url: String,
     pub runs_url: String,
     pub success_url: String,
     pub settings_url: String,
@@ -215,6 +216,7 @@ impl JobInfo {
             id:   job.id.clone(),
             user: job.user.clone(),
             name: job.name.clone(),
+            url: uri!(get_job(&job.user, &job.id)).to_string(),
             runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
             success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
             settings_url: uri!(get_job_settings(&job.user, &job.id)).to_string(),
@@ -284,6 +286,12 @@ async fn recent_runs(db: &State<Db>, after: Option<u64>, id:Option<Vec<u64>>) ->
             .then(async move |run: &db::Run| -> Result<JobInfo, Box<dyn Error>> {
                 Ok(JobInfo::from_job(&run.job, Some(&run)).await?)
             }).try_collect().await?))
+}
+
+#[get("/job/<user>/<job_id>")]
+async fn get_job(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<JobInfo>> {
+    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    Ok(Json(JobInfo::from_job(&job, None).await?))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -451,7 +459,7 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
                              // client endpoints
                              run_create, run_heartbeat, run_stdout, run_stderr, run_complete,
                              // web app endpoints
-                             jobs, recent_runs, get_runs, get_run, get_run_log, get_success,
+                             jobs, recent_runs, get_job, get_runs, get_run, get_run_log, get_success,
                              get_job_settings, put_job_settings];
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
