@@ -127,6 +127,7 @@ impl Api {
         Ok(resp.text().await?)
     }
 
+    #[allow(dead_code)]
     pub async fn get(&self, path: &str) -> Result<String, Box<dyn Error>> {
         let resp = self.ua.get(self.server.join(path)?)
             .send()
@@ -311,7 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn heartbeat_timeout() {
-        let (db, db_path) = test_db().await;
+        let (db, _db_path) = test_db().await;
         let cmd = "echo a simple test";
         let run = db::Run::create(&db, "test-user", "David's The _absolute_ Greatest", None, cmd.to_string(), vec![]).await.expect("db::Run create worked");
 

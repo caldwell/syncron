@@ -679,6 +679,7 @@ pub fn time_string_from_timestamp_ms(timestamp_ms: i64) -> String {
 
 #[derive(Debug, Clone)]
 pub struct Settings {
+    #[allow(dead_code)]
     pub db: Db,
     pub retention: RetentionSettings,
 }

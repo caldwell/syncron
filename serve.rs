@@ -336,7 +336,7 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
         log_len @ 1...300_000 => { // If it's short enough, give the log back inline
             use tokio::io::AsyncReadExt;
             let Some(mut log_file) = run.log_file().await.map_err(|e| wrap(&*e, "log"))? else { Err(Debug(format!("log_len() was {} but log() said None!", log_len).into()))? };
-            let (total, length) = seek_and_limit(&mut log_file, seek, None).await.map_err(|e| wrap(&*e, "log seek"))?;
+            let (_total, length) = seek_and_limit(&mut log_file, seek, None).await.map_err(|e| wrap(&*e, "log seek"))?;
             let mut log = String::with_capacity(length as usize);
             log_file.read_to_string(&mut log).await.map_err(|e| wrap(&e, "log read"))?;
             (Some(log), Some(log_len), Some(uri!(get_run_log(user, job_id, run_id, _, _)).to_string()))
@@ -430,6 +430,7 @@ async fn get_success(db: &State<Db>, user: &str, job_id: &str, before: Option<u6
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
     Ok(Json(job.successes(before, after).await?))
 }
+
 
 #[get("/job/<user>/<job_id>/settings")]
 async fn get_job_settings(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<db::JobSettings>> {

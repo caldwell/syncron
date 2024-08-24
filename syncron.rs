@@ -77,7 +77,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         5   => ("warn,syncron=trace,rocket=trace",             FmtSpan::NEW | FmtSpan::CLOSE,  ),
         6   => ("warn,syncron=trace,rocket=trace,hyper=debug", FmtSpan::NEW | FmtSpan::CLOSE,  ),
         7.. => ("trace",                                       FmtSpan::NEW | FmtSpan::CLOSE,  ),
-        _ => todo!(),
     };
 
     tracing_subscriber::fmt()
