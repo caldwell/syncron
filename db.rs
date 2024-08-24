@@ -73,9 +73,9 @@ pub enum JobRetention {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default)]
 pub struct RetentionSettings {
-    pub time: Option<usize>,
-    pub runs: Option<usize>,
-    pub size: Option<usize>,
+    pub max_age:  Option<usize>,
+    pub max_runs: Option<usize>,
+    pub max_size: Option<usize>,
 }
 
 #[derive(Debug)]
