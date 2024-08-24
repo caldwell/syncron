@@ -18,10 +18,13 @@ target/release/%: *.rs payload.zip
 
 WEB_TARGETS=web/lib/jsml-react.js web/lib/jsml-react-bundle.js web/syncron.css
 web: $(WEB_TARGETS)
+watch: $(filter %.css,$(WEB_TARGETS))
+watch: SASSFLAGS += --watch
+
 .PHONY: web
 
 %.css: %.scss
-	./node_modules/.bin/sass $< > $@
+	./node_modules/.bin/sass $(SASSFLAGS) $< $@
 
 web/lib:
 	mkdir -p web/lib
