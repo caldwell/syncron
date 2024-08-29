@@ -155,9 +155,11 @@ function run_status(props) {
                     ["span", { className: "eta" }, "ETA: Unknown"]]]);
 }
 
-function loading({}) {
-    return jsr(["div", { className: "spinner-border text-primary", role: "status" },
-                ["span",  { className: "visually-hidden" }, "Loading..." ]]);
+function loading({message}) {
+    message ??= ["span",  { className: "visually-hidden" }, "Loading..."];
+    return jsr(["div",
+                ["div", { className: "spinner-border text-primary", role: "status" }],
+                ["span", message]]);
 }
 
 function card({kind, title, children}) {
