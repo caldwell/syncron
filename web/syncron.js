@@ -54,16 +54,28 @@ function nav({el, children}) {
     return ReactDOM.createPortal(children, el);
 }
 
+async function _fetch(url, options={}) {
+    let headers = {};
+    if (options.method == "POST" | options.method == "PUT")
+        headers = { headers: { "Content-Type": "application/json", ...options.headers ?? {} } };
+    try {
+        let resp = await window.fetch(url, {...options, ...headers });
+        if (!resp.ok) throw("Response failed: "+resp.statusText)
+        return resp;
+    } catch(e) {
+        if (e.code == DOMException.ABORT_ERR) return undefined;
+        throw e;
+    }
+}
+
 async function fetch_json(url, options={}) {
-    let resp = await fetch(url, options)
-    if (!resp.ok) throw("Response failed: "+resp.statusText)
-    return resp.json()
+    let resp = await _fetch(url, options);
+    return resp?.json()
 }
 
 async function fetch_text(url, options={}) {
-    let resp = await fetch(url, options)
-    if (!resp.ok) throw("Response failed: "+resp.statusText)
-    return resp.text()
+    let resp = await _fetch(url, options)
+    return resp?.text()
 }
 
 const svg = {
