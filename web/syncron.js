@@ -391,9 +391,10 @@ function runs_view({runs_url, job, set_view}) {
                                                 ];
                                      }),
                                     ]],
-                                    ["button", "Load 100 more entries", { onClick: prevent_default(() => load_more(100)) }],
-                                    ["button", "Load 1000 more entries", { onClick: prevent_default(() => load_more(1000)) }],
-                                    ["button", "Load all the entries", { onClick: prevent_default(() => load_more()) }],
+                                    ["div", { className: "load-buttons" },
+                                     ["button", "Load 100 more entries", { onClick: prevent_default(() => load_more(100)) }],
+                                     ["button", "Load 1000 more entries", { onClick: prevent_default(() => load_more(1000)) }],
+                                     ["button", "Load all the entries", { onClick: prevent_default(() => load_more()) }]],
                                    ]]);
 }
 
