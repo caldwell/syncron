@@ -326,7 +326,9 @@ impl Job {
                 if let Err(e) = if dry_run { Ok(()) } else { run.delete().await } {
                     warn!("Couldn't delete {}/{}: {}", self.name, run.run_id, e);
                 } else {
-                    pruned.push(Pruned { job_id: self.job_id, run_id: run.run_id.clone(), size: *size, reason });
+                    if pruned.len() < 1000 { // with millions pruned I started running out of system RAM (64G) due to this list. Having too many in the list isn't even useful for the UI, so lets just cap this for sanity.
+                        pruned.push(Pruned { job_id: self.job_id, run_id: run.run_id.clone(), size: *size, reason });
+                    }
                     if let Some(ref mut stats) = stats {
                         stats.pruned.runs += 1;
                         stats.pruned.size += size;
