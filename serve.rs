@@ -445,16 +445,27 @@ async fn put_job_settings(db: &State<Db>, user: &str, job_id: &str, settings: Js
     Ok(())
 }
 
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PruneResult {
+    pruned: Vec<db::Pruned>,
+    stats: db::PruneStats,
+}
+
 #[get("/job/<user>/<job_id>/prune")]
-async fn get_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<Vec<db::Pruned>>> {
+async fn get_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<PruneResult>> {
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
-    Ok(Json(job.prune_dry_run().await?))
+    let mut stats = db::PruneStats::default();
+    let pruned = job.prune_dry_run(Some(&mut stats)).await?;
+    Ok(Json(PruneResult { pruned, stats }))
 }
 
 #[post("/job/<user>/<job_id>/prune")]
-async fn post_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<Vec<db::Pruned>>> {
+async fn post_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<PruneResult>> {
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
-    Ok(Json(job.prune().await?))
+    let mut stats = db::PruneStats::default();
+    let pruned = job.prune(Some(&mut stats)).await?;
+    Ok(Json(PruneResult { pruned, stats }))
 }
 
 #[post("/shutdown")]

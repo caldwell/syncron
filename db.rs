@@ -121,6 +121,19 @@ pub struct Pruned {
     pub reason: String,
 }
 
+#[derive(Copy, Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct RunCount {
+    pub runs: usize,
+    pub size: usize,
+}
+
+#[derive(Copy, Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct PruneStats {
+    pub pruned: RunCount,
+    pub kept: RunCount,
+}
+
+
 pub fn slug(st: &str) -> String {
     let mut slug = st.replace(|ch: char| !ch.is_ascii_alphanumeric(), "-");
     slug.make_ascii_lowercase();
@@ -285,19 +298,20 @@ impl Job {
         Ok(())
     }
 
-    async fn _prune(&self, dry_run: bool) -> Result<Vec<Pruned>, Box<dyn Error>> {
+    async fn _prune(&self, dry_run: bool, mut stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> {
         let retention = match self.settings.retention {
             JobRetention::Custom(retention) => retention,
             JobRetention::Default => Settings::load(&self.db).await?.retention,
         };
         debug!("Retention settings for {}: {:?}", self.name, retention);
-        if retention == RetentionSettings::default() { return Ok(vec![]) }
+        if retention == RetentionSettings::default() && stats.is_none() { return Ok(vec![]) }
         let runs = self.runs(None, None, None).await?;
         debug!("Considering {} [{} runs]", self.name, runs.len());
         let mut total = 0;
         let sizes: Vec<(usize,usize)> = runs.iter().map(|r| { let size = r.log_len() as usize; total += size; (size, total) }).collect();
         let now = chrono::Local::now();
         let mut pruned = vec![];
+        if let Some(ref mut stats) = stats { **stats = PruneStats::default() };
         for (n, (run, (size, total_size))) in runs.iter().zip(sizes.iter()).enumerate().rev() {
             let (reason, will_prune) = match (retention.max_age.map(|t| t as i64), now.signed_duration_since(run.date).num_days(),
                                               retention.max_runs,
@@ -313,15 +327,23 @@ impl Job {
                     warn!("Couldn't delete {}/{}: {}", self.name, run.run_id, e);
                 } else {
                     pruned.push(Pruned { job_id: self.job_id, run_id: run.run_id.clone(), size: *size, reason });
+                    if let Some(ref mut stats) = stats {
+                        stats.pruned.runs += 1;
+                        stats.pruned.size += size;
+                    }
                 }
             } else {
                 debug!("Not Pruning {}/{}: {:?},{:?} {:?},{:?} {:?},{:?}", self.name, run.run_id, retention.max_age, now.signed_duration_since(run.date).num_days(), retention.max_runs, n, retention.max_size, total_size);
+                if let Some(ref mut stats) = stats {
+                    stats.kept.runs += 1;
+                    stats.kept.size += size;
+                }
             }
         }
         Ok(pruned)
     }
-    pub async fn prune_dry_run(&self) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(true).await }
-    pub async fn prune(&self)         -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(false).await }
+    pub async fn prune_dry_run(&self, stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(true,  stats).await }
+    pub async fn prune(&self,         stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(false, stats).await }
 }
 
 impl Run {
@@ -579,7 +601,7 @@ impl Run {
         sqlx::query!("UPDATE run SET status = ?, success = ?, end = ?, client_id = NULL WHERE run_id = ?", status_json, success, end, self.run_db_id).execute(self.job.db.sql()).await?;
         self.complete_progress(end.unwrap()).await?;
 
-        match self.job.prune().await {
+        match self.job.prune(None).await {
             Ok(pruned) if pruned.len() > 0 => { for p in pruned.iter() { info!("{}/{}: pruned {} ({:>5}): {}", self.job.user, self.job.name, p.run_id, human_bytes(p.size), p.reason) }
                                                 info!("{}/{}: total pruned: {}", self.job.user, self.job.name, human_bytes(pruned.iter().map(|p| p.size).max().unwrap())); },
             Ok(_)                          => {/* Pruned nothing, so nothing to log */},
