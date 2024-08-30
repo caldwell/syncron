@@ -716,6 +716,14 @@ impl Settings {
             },
         })
     }
+
+    pub async fn set_retention(&mut self, new_retention: RetentionSettings) -> Result<(), Box<dyn Error>> {
+        let json = serde_json::to_string(&new_retention)?;
+        sqlx::query!("INSERT INTO settings (key, value) VALUES ('retention', jsonb(?))
+                        ON CONFLICT (key) DO UPDATE SET value=excluded.value", json) .execute(self.db.sql()).await?;
+        self.retention = new_retention;
+        Ok(())
+    }
 }
 
 pub fn human_bytes(bytes: usize) -> String {

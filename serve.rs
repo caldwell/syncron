@@ -468,6 +468,24 @@ async fn post_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<
     Ok(Json(PruneResult { pruned, stats }))
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct Settings {
+    retention: db::RetentionSettings,
+}
+
+#[get("/settings")]
+async fn get_settings(db: &State<Db>) -> WebResult<Json<Settings>> {
+    let settings = db::Settings::load(db).await?;
+    Ok(Json(Settings { retention: settings.retention }))
+}
+
+#[put("/settings", data="<new_settings>")]
+async fn put_settings(db: &State<Db>, new_settings: Json<Settings>) -> WebResult<()> {
+    let mut settings = db::Settings::load(db).await?;
+    settings.set_retention(new_settings.retention).await?;
+    Ok(())
+}
+
 #[post("/shutdown")]
 #[tracing::instrument(name="POST /shutdown", skip_all)]
 fn shutdown(shutdown: rocket::Shutdown) -> &'static str {
@@ -486,7 +504,7 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
                              run_create, run_heartbeat, run_stdout, run_stderr, run_complete,
                              // web app endpoints
                              jobs, recent_runs, get_job, get_runs, get_run, get_run_log, get_success,
-                             get_job_settings, put_job_settings, get_prune, post_prune];
+                             get_job_settings, put_job_settings, get_prune, post_prune, get_settings, put_settings];
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
         .mount("/", routes)
