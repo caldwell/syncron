@@ -17,6 +17,21 @@ export function card({kind, title, extra_header, children}) {
                  children]]);
 }
 
+export function progress({min, max, current, message}) {
+    min ??= 0;
+    let percent = current == undefined || max == undefined || min-max == 0 ? undefined : (current - min) / (max - min) * 100;
+    return jsr([React.Fragment,
+                ['div', { className: 'progress-message' }, message],
+                ['div', { className:'progress', role:'progressbar', 'aria-label':'message', 'aria-valuenow':percent ?? 0, 'aria-valuemin':0, 'aria-valuemax':100 },
+                 percent == undefined ? ['div', { key: 0, className: 'progress-bar-indeterminate' } ]
+                                      : ['div', { key: 1, className: 'progress-bar', style: { '--progress': `${percent}%` } } ],
+                ]]);
+}
+
+export function classes(...class_names) {
+    return { className: class_names.filter(c => typeof c == "string").join(' ') }
+}
+
 export function prevent_default(f) {
     return (e) => {
         e.preventDefault();
@@ -59,4 +74,49 @@ export async function fetch_json(url, options={}) {
 export async function fetch_text(url, options={}) {
     let resp = await _fetch(url, options)
     return resp?.text()
+}
+
+export class debounce {
+    constructor(delay) {
+        this.delay = delay;
+    }
+
+    hit(callback) {
+        this.abort();
+        this.id = setTimeout(() => { this.id = undefined; callback() }, this.delay);
+    }
+
+    abort() {
+        if (this.id) this.id = clearTimeout(this.id);
+    }
+}
+
+export function use_debounce(delay) {
+    let [debouncer] = React.useState(() => new debounce(delay));
+
+    React.useEffect(() => {
+        return () => debouncer.abort();
+    }, []);
+
+    return debouncer;
+}
+
+// Stolen from movierip
+function __find(p, o, f, v) {
+    if (p.length == 1)
+        return f(p[0], o, v);
+    let nv = __find(p.slice(1), o[p[0]], f, v);
+    return f(p[0], o, nv);
+}
+export function get_path(path, obj) {
+    try { return __find(path.split('.'), obj, (k, o, v) => v !== undefined ? v : o[k]); }
+    catch(e) { throw(`Error getting ${path} from ${JSON.stringify(obj)}: ${e}`) }
+}
+export function set_path_impure(path, obj, val) {
+    try { return __find(path.split('.'), obj, (k, o, v) => { o[k] = v; return o }, val); }
+    catch(e) { throw(`Error setting ${path} in ${JSON.stringify(obj)}: ${e}`) }
+}
+export function set_path(path, obj, val) {
+    try { return __find(path.split('.'), obj, (k, o, v) => Object.assign({}, o, { [k]: v }), val); }
+    catch(e) { throw(`Error setting ${path} in ${JSON.stringify(obj)}: ${e}`) }
 }

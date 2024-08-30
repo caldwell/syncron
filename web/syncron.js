@@ -1,6 +1,8 @@
-// Copyright © 2022 David Caldwell <david@porkrind.org>
+// Copyright © 2022-2024 David Caldwell <david@porkrind.org>
 import { React, ReactDOM, jsr } from "./lib/jsml-react-bundle.js"
 import { loading, card, prevent_default, human_bytes, url_with, fetch_json, fetch_text } from "./utils.js"
+import { global_settings, job_settings, Saved } from "./settings.js"
+import { prune_modal } from "./prune.js"
 
 function main() {
     let [nav_el, app_view] = ["nav", "app-view"].map(id => document.getElementById(id));
@@ -66,6 +68,9 @@ const svg = {
     Refresh: ["svg", { xmlns:"http://www.w3.org/2000/svg", width: "32", height: "32", fill: "currentColor", className: "bi bi-arrow-repeat", viewBox: "0 0 16 16" },
               ["path", { d: "M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41zm-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9z" }],
               ["path", { fillRule: "evenodd", d: "M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5.002 5.002 0 0 0 8 3zM3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9H3.1z" }]],
+    Settings: ['svg', { xmlns:'http://www.w3.org/2000/svg',width:'16',height:'16',fill:'currentColor',className:'bi bi-gear',viewBox:'0 0 16 16' },
+               ['path', { d:'M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492M5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0' }],
+               ['path', { d:'M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115z' }]],
 }
 
 function human_status(status) {
@@ -132,6 +137,8 @@ function delay(ms) {
 
 function jobs_view({jobs_url, runs_url, set_view}) {
     let [jobs, set_jobs] = React.useState(null);
+    let [show_settings, set_show_settings] = React.useState(false);
+    let [prune_state, set_prune_state] = React.useState(undefined);
 
     let _sorted = jobs?.map(job => job.latest_run).sort((a,b) => b.date-a.date);
     let latest = _sorted?.[0].date;
@@ -163,7 +170,35 @@ function jobs_view({jobs_url, runs_url, set_view}) {
 
     use_interval_loader(1*1000, running.length > 0 && url_with(runs_url, running.map(r => ["id", r.unique_id])), (updated) => update_runs(updated));
 
-    return jsr([card, { kind: "jobs-view", title: "Jobs" },
+    let prune = React.useCallback(async () => {
+        set_prune_state({ pruning: true, progress: { message: "Starting…" } });
+        try {
+            let to_prune = (await Promise.all(jobs.map(async j => ({job: j, settings: await fetch_json(j.settings_url)}))))
+                .filter(({job,settings}) => settings.retention == "default")
+                .map(({job,settings}) => job);
+            set_prune_state({ pruning: true, progress: { index: 0, max: to_prune.length, message: "Starting…" } });
+            let result = { pruned: [], stats: { kept: { runs: 0, size: 0 }, pruned: { runs: 0, size: 0 } } };
+            for (let [i, job] of to_prune.entries()) {
+                set_prune_state({ pruning: true, progress: { index: i, max: to_prune.length, message: `Pruning ${job.user} / ${job.name}…`} });
+                let prune_result = await fetch_json(job.prune_url, { method: 'POST' });
+                result.pruned.push(...prune_result.pruned);
+                result.stats.kept.runs   += prune_result.stats.kept.runs;
+                result.stats.kept.size   += prune_result.stats.kept.size;
+                result.stats.pruned.runs += prune_result.stats.pruned.runs;
+                result.stats.pruned.size += prune_result.stats.pruned.size;
+            }
+            set_prune_state({ pruning: false, result, progress: { index: to_prune.length, max: to_prune.length, message: `Pruning Complete.`} });
+        } catch(e) {
+            set_prune_state(curr => Object.assign({}, curr, { pruning: false, error: e }));
+        }
+    }, [jobs, set_prune_state]);
+
+    return jsr([card, { kind: "jobs-view", title: "Jobs",
+                        extra_header: ['a', { href: "#", onClick: prevent_default(() => set_show_settings(true)) },
+                                       svg.Settings] },
+                show_settings && [global_settings, { jobs, close_settings: (reason) => { set_show_settings(false);
+                                                                                         if (reason == Saved) prune() } }],
+                prune_state && [prune_modal, { prune_state, done: () => set_prune_state(undefined) }],
                     jobs == null ? [loading]
                                  : [["table", { className: "jobs" },
                                      ["thead",
@@ -296,6 +331,8 @@ function use_interval_loader(interval_ms, url, callback) {
 
 function runs_view({runs_url, job, set_view}) {
     let [runs, set_runs] = React.useState(null);
+    let [show_settings, set_show_settings] = React.useState(false);
+    let [prune_state, set_prune_state] = React.useState(undefined);
 
     let _sorted = runs?.concat([]).sort((a,b) => b.date-a.date);
     let latest = _sorted?.[0].date;
@@ -323,7 +360,18 @@ function runs_view({runs_url, job, set_view}) {
         set_runs((old_runs) => new_runs.concat(old_runs || []));
     };
 
-    return jsr([card, { kind: "runs-view", title: `${job.user} / ${job.name}` },
+    let prune = async () => {
+        set_prune_state({ pruning: true });
+        let result = await fetch_json(job.prune_url, { method: 'POST' });
+        set_prune_state({ pruning: false, result });
+    };
+
+    return jsr([card, { kind: "runs-view", title: `${job.user} / ${job.name}`,
+                        extra_header: ['a', { href: "#", onClick: prevent_default(() => set_show_settings(true)) },
+                                       svg.Settings ] },
+                show_settings && [job_settings, { job, close_settings: (reason) => { set_show_settings(false);
+                                                                                     if (reason == Saved) prune() } }],
+                prune_state && [prune_modal, { job, prune_state, done: () => set_prune_state(undefined) }],
                     runs == null ? [loading]
                                  : [React.Fragment,
                                     ["table", { className: "jobs" },

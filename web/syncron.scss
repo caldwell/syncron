@@ -33,6 +33,19 @@ nav.navbar {
     color: color-contrast($primary);
 }
 
+.card-header {
+    display: flex;
+    align-items: center;
+    align-content: space-evenly;
+    flex-direction: row;
+    justify-content: space-between;
+
+    .bi.bi-gear {
+        width: 2em;
+        height: 2em;
+    }
+}
+
 .refresh {
     @extend .btn;
     @extend .btn-outline-secondary;
@@ -121,8 +134,136 @@ nav.navbar {
     }
 }
 
+.backdrop {
+    position: fixed;
+    background: rgba(0,0,0,70%);
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+}
+
+.modal {
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    top: 4em;
+    z-index: 3;
+    border-color: var(--bs-border-color);
+    box-shadow: 0em 0em 5em black;
+    /* Override bootstrap settings for .modal: */
+    display: block;
+    width: revert;
+    height: revert;
+}
+
+.job, .global {
+    &.settings .retention > .form-select {
+        @extend .mb-3;
+    }
+
+    &.settings .retention input[type=text] {
+        display: inline-block;
+        width: 10em;
+    }
+
+    &.settings .retention .input-group {
+        width: max-content;
+    }
+
+    &.settings .retention .form-select.input-group-text {
+        flex: 0 0 auto;
+        min-width: 7em;
+        text-align: revert;
+    }
+    &.settings .retention input:not(:checked) + label .input-group :is(input, span, :disabled) {
+        color: rgba(var(--bs-body-color-rgb), 50%);
+    }
+    &.settings .alert.hidden {
+        display: block;
+        opacity: 0; /* keep it rendered so it takes up space */
+    }
+    &.settings .alert.hidden::before {
+        content: " "; /* nbsp to give it real content so it takes up the correct amount of vertical space */
+    }
+    &.settings .alert .spinner-border {
+        @extend .spinner-border-sm;
+    }
+    &.settings .buttons button {
+        width: 8em;
+    }
+}
+
+.progress {
+    .progress-bar-indeterminate {
+        @extend .progress-bar-striped;
+        @extend .progress-bar-animated;
+        width: 100%;
+    }
+    .progress-bar {
+        width: var(--progress);
+    }
+}
+
+.prune.modal {
+    .card-header > h1 {
+        width: 100%; /* Why do I need this?? */
+    }
+
+    .card-header > h1:has(.progress) {
+        font-size: 1.5em;
+    }
+
+    .deleted-runs.hide ~ table {
+        display: none;
+    }
+
+    .deleted-runs.hide::before {content: var(--disclosure-closed);}
+    .deleted-runs.show::before {content: var(--disclosure-opened);}
+    .deleted-runs::before {
+        padding-right: .3rem;
+        filter: var(--dark-invert);
+    }
+
+    h2.deleted-runs {
+        font-size: 1.2rem;
+    }
+    .deleted-runs + table {
+        & {
+            margin-bottom: 0.5rem; /* same as the h1, so buttons underneath have a consistent vertical gap */
+            margin-left: calc(16px/*disclosure svg*/ + 0.3rem/*.deleted-runs::before padding-right*/);
+        }
+        thead {
+            border-bottom: 1px solid;
+        }
+        tr:not(:first-child) td {
+            padding-top: 0.2rem;
+        }
+        td:not(:last-child) {
+            padding-right: 2em;
+        }
+        td {
+            font-size: smaller;
+        }
+        tr td:first-child {
+            font-family: monospace;
+        }
+    }
+}
+
 .spinner-border {
     margin-right: 1ex;
+}
+
+.error {
+    @extend .alert;
+    @extend .alert-danger;
+}
+
+.card-body .error:last-child {
+    --bs-alert-margin-bottom: 0;
+    margin-top: 1rem;
 }
 
 .hidden {
@@ -149,7 +290,7 @@ button {
     @extend .btn-primary;
 }
 
-.load-buttons {
+.load-buttons, .settings .buttons {
     @extend .d-grid;
     @extend .gap-2;
     @extend .d-md-flex;
