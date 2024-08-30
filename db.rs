@@ -302,9 +302,9 @@ impl Job {
             let (reason, will_prune) = match (retention.max_age.map(|t| t as i64), now.signed_duration_since(run.date).num_days(),
                                               retention.max_runs,
                                               retention.max_size, *total_size) {
-                (Some(max), age, _,         _,         _)    if age  > max => (format!("exceeded max age  ({age} > {max})",  ), true),
-                (_,         _,   Some(max), _,         _)    if n    > max => (format!("exceeded max runs ({n} > {max})",    ), true),
-                (_,         _,   _,         Some(max), size) if size > max => (format!("exceeded max size ({size} > {max})", ), true),
+                (Some(max), age, _,         _,         _)    if age  >= max => (format!("exceeded max age  ({age} > {max})",  ), true),
+                (_,         _,   Some(max), _,         _)    if n    >= max => (format!("exceeded max runs ({n} > {max})",    ), true),
+                (_,         _,   _,         Some(max), size) if size >= max => (format!("exceeded max size ({size} > {max})", ), true),
                 _ => (format!(""), false),
             };
             if will_prune {
