@@ -221,7 +221,7 @@ impl JobInfo {
             runs_url: uri!(get_runs(&job.user, &job.id, _, _, _, _)).to_string(),
             success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
             settings_url: uri!(get_job_settings(&job.user, &job.id)).to_string(),
-            prune_url: uri!(get_prune(&job.user, &job.id)).to_string(),
+            prune_url: uri!(get_prune(&job.user, &job.id, _)).to_string(),
             latest_run: match latest_run {
                 Some(r) => RunInfo::from_run(r).await?,
                 None => {
@@ -452,11 +452,11 @@ struct PruneResult {
     stats: db::PruneStats,
 }
 
-#[get("/job/<user>/<job_id>/prune")]
-async fn get_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<PruneResult>> {
+#[get("/job/<user>/<job_id>/prune?<settings>")]
+async fn get_prune(db: &State<Db>, user: &str, job_id: &str, settings: Option<Json<db::RetentionSettings>>) -> WebResult<Json<PruneResult>> {
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
     let mut stats = db::PruneStats::default();
-    let pruned = job.prune_dry_run(Some(&mut stats)).await?;
+    let pruned = job.prune_dry_run(Some(&mut stats), settings.map(|s| s.into_inner())).await?;
     Ok(Json(PruneResult { pruned, stats }))
 }
 

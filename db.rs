@@ -298,11 +298,11 @@ impl Job {
         Ok(())
     }
 
-    async fn _prune(&self, dry_run: bool, mut stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> {
-        let retention = match self.settings.retention {
+    async fn _prune(&self, dry_run: bool, mut stats: Option<&mut PruneStats>, settings: Option<RetentionSettings>) -> Result<Vec<Pruned>, Box<dyn Error>> {
+        let retention = settings.unwrap_or(match self.settings.retention {
             JobRetention::Custom(retention) => retention,
             JobRetention::Default => Settings::load(&self.db).await?.retention,
-        };
+        });
         debug!("Retention settings for {}: {:?}", self.name, retention);
         if retention == RetentionSettings::default() && stats.is_none() { return Ok(vec![]) }
         let runs = self.runs(None, None, None).await?;
@@ -342,8 +342,8 @@ impl Job {
         }
         Ok(pruned)
     }
-    pub async fn prune_dry_run(&self, stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(true,  stats).await }
-    pub async fn prune(&self,         stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(false, stats).await }
+    pub async fn prune_dry_run(&self, stats: Option<&mut PruneStats>, settings: Option<RetentionSettings>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(true,  stats, settings).await }
+    pub async fn prune(&self,         stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(false, stats, None).await }
 }
 
 impl Run {
