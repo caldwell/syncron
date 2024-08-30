@@ -295,10 +295,10 @@ impl Job {
         let runs = self.runs(None, None, None).await?;
         debug!("Considering {} [{} runs]", self.name, runs.len());
         let mut total = 0;
-        let sizes: Vec<usize> = runs.iter().map(|r| { total += r.log_len() as usize; total }).collect();
+        let sizes: Vec<(usize,usize)> = runs.iter().map(|r| { let size = r.log_len() as usize; total += size; (size, total) }).collect();
         let now = chrono::Local::now();
         let mut pruned = vec![];
-        for (n, (run, total_size)) in runs.iter().zip(sizes.iter()).enumerate().rev() {
+        for (n, (run, (size, total_size))) in runs.iter().zip(sizes.iter()).enumerate().rev() {
             let (reason, will_prune) = match (retention.max_age.map(|t| t as i64), now.signed_duration_since(run.date).num_days(),
                                               retention.max_runs,
                                               retention.max_size, *total_size) {
@@ -308,12 +308,11 @@ impl Job {
                 _ => (format!(""), false),
             };
             if will_prune {
-                let size = run.log_len() as usize;
                 debug!("Pruning {}/{}: {}", self.name, run.run_id, reason);
                 if let Err(e) = if dry_run { Ok(()) } else { run.delete().await } {
                     warn!("Couldn't delete {}/{}: {}", self.name, run.run_id, e);
                 } else {
-                    pruned.push(Pruned { job_id: self.job_id, run_id: run.run_id.clone(), size, reason });
+                    pruned.push(Pruned { job_id: self.job_id, run_id: run.run_id.clone(), size: *size, reason });
                 }
             } else {
                 debug!("Not Pruning {}/{}: {:?},{:?} {:?},{:?} {:?},{:?}", self.name, run.run_id, retention.max_age, now.signed_duration_since(run.date).num_days(), retention.max_runs, n, retention.max_size, total_size);
