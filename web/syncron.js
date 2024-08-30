@@ -181,7 +181,7 @@ function jobs_view({jobs_url, runs_url, set_view}) {
             for (let [i, job] of to_prune.entries()) {
                 set_prune_state({ pruning: true, progress: { index: i, max: to_prune.length, message: `Pruning ${job.user} / ${job.name}…`} });
                 let prune_result = await fetch_json(job.prune_url, { method: 'POST' });
-                result.pruned.push(...prune_result.pruned);
+                result.pruned = result.pruned.concat(prune_result.pruned);
                 result.stats.kept.runs   += prune_result.stats.kept.runs;
                 result.stats.kept.size   += prune_result.stats.kept.size;
                 result.stats.pruned.runs += prune_result.stats.pruned.runs;

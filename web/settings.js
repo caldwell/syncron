@@ -115,7 +115,7 @@ export function global_settings({jobs, close_settings}) {
             let settings = await fetch_json(job.settings_url);
             if (settings.retention == undefined || settings.retention == "default") { // We only care about jobs that use the defaults that we're changing
                 let prune_result = await fetch_json(url_with(job.prune_url, { settings: JSON.stringify(from_retention_state()) }));
-                total_results.pruned.push(...prune_result.pruned);
+                total_results.pruned = total_results.pruned.concat(prune_result.pruned);
                 total_results.stats.kept.runs   += prune_result.stats.kept.runs;
                 total_results.stats.kept.size   += prune_result.stats.kept.size;
                 total_results.stats.pruned.runs += prune_result.stats.pruned.runs;
