@@ -1,5 +1,6 @@
 // Copyright © 2022 David Caldwell <david@porkrind.org>
 import { React, ReactDOM, jsr } from "./lib/jsml-react-bundle.js"
+import { loading, card, prevent_default, human_bytes, url_with, fetch_json, fetch_text } from "./utils.js"
 
 function main() {
     let [nav_el, app_view] = ["nav", "app-view"].map(id => document.getElementById(id));
@@ -54,30 +55,6 @@ function nav({el, children}) {
     return ReactDOM.createPortal(children, el);
 }
 
-async function _fetch(url, options={}) {
-    let headers = {};
-    if (options.method == "POST" | options.method == "PUT")
-        headers = { headers: { "Content-Type": "application/json", ...options.headers ?? {} } };
-    try {
-        let resp = await window.fetch(url, {...options, ...headers });
-        if (!resp.ok) throw("Response failed: "+resp.statusText)
-        return resp;
-    } catch(e) {
-        if (e.code == DOMException.ABORT_ERR) return undefined;
-        throw e;
-    }
-}
-
-async function fetch_json(url, options={}) {
-    let resp = await _fetch(url, options);
-    return resp?.json()
-}
-
-async function fetch_text(url, options={}) {
-    let resp = await _fetch(url, options)
-    return resp?.text()
-}
-
 const svg = {
     Success: ["svg", { xmlns: "http://www.w3.org/2000/svg", width: "32", height: "32", fill: "currentColor", className: "bi bi-check-circle-fill text-success", viewBox: "0 0 16 16" },
               ["path", { d: "M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zm-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z" }]],
@@ -112,20 +89,6 @@ function localiso(timestamp) {
         .replace(/T/, ' ').replace(/Z$/, `${offset_hours > 0 ? "-" : "+"}${offset_hours < 10 ? "0" : ""}${offset_hours}:00`);
 }
 
-function prevent_default(f) {
-    return (e) => {
-        e.preventDefault();
-        return f();
-    }
-}
-
-function human_bytes(bytes) {
-    if (bytes == 0) return bytes.toString()+"B";
-    let exp = Math.floor(Math.log(bytes)/Math.log(1024));
-    let s = bytes / (1024**exp);
-    return s.toString().replace(/([\d.]{4}).*/, '$1') + ["B","KB","MB","GB","TB","PB","EB"][exp];
-}
-
 function elapsed(seconds, leading_zero) {
     let h = Math.floor(seconds / 60 / 60) % 60,
         m = Math.floor(seconds / 60) % 60,
@@ -153,21 +116,6 @@ function run_status(props) {
                      ["div", { className: "progress-bar indeterminate",
                                role: "progressbar", style: { width: "100%" }, "aria-valuenow": 100, "aria-valuemin": 0, "aria-valuemax": 100 }]],
                     ["span", { className: "eta" }, "ETA: Unknown"]]]);
-}
-
-function loading({message}) {
-    message ??= ["span",  { className: "visually-hidden" }, "Loading..."];
-    return jsr(["div",
-                ["div", { className: "spinner-border text-primary", role: "status" }],
-                ["span", message]]);
-}
-
-function card({kind, title, children}) {
-    return jsr(["div", { className: `card ${kind}` },
-                ["div", { className: "card-header" },
-                 ["h1", title]],
-                ["div", { className: "card-body" },
-                 children]]);
 }
 
 function synced_interval(period, offset, callback) {
@@ -330,12 +278,6 @@ function use_canvas(draw, deps) {
         return () => {}
     }, [draw].concat(deps||[]));
     return canvas_ref;
-}
-
-function url_with(url, params) {
-    let u = new URL(url, window.location.href);
-    u.search = (new URLSearchParams([...u.searchParams.entries()].concat(params instanceof Array ? params : Object.entries(params)))).toString();
-    return u;
 }
 
 function use_interval_loader(interval_ms, url, callback) {
