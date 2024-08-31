@@ -142,7 +142,7 @@ function jobs_view({jobs_url, runs_url, set_view}) {
 
     let _sorted = jobs?.map(job => job.latest_run).sort((a,b) => b.date-a.date);
     let latest = _sorted?.[0].date;
-    let running = _sorted?.filter(r => r.status == null) || [];
+    let running = _sorted?.filter(r => r && r.status == null) || [];
 
     React.useEffect(() => {
         let cancelled = false;
@@ -211,6 +211,15 @@ function jobs_view({jobs_url, runs_url, set_view}) {
                                        ["th", { colspan: "2", scope: "col", className: "status" }, "Status"]]],
                                      ["tbody",
                                       jobs.sort((a,b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())).map((job) => {
+                                          if (job.latest_run == undefined)
+                                              return [React.Fragment,
+                                                      ["tr", { key: job.user+job.id, className: "empty" },
+                                                       ["td"],
+                                                       ["td", job.user],
+                                                       ["td", ["a", { href: "#", onClick: prevent_default(() => set_view({ view:"runs", runs_url: job.runs_url, job:job })) }, job.name ]],
+                                                       ["td", { colspan: 4 }, "No runs for this job"]],
+                                                      ["tr", { key: job.user+job.id+"success-chart", className: "hist" },
+                                                       ["td", { colspan: 7 }, [success_chart, { success_url: job.success_url, last_run_at: 0, last_run_status: 0 }]]]];
                                           let status = status_state(job.latest_run);
                                           return [React.Fragment,
                                                   ["tr", { key: job.user+job.id, className: status },
@@ -335,7 +344,7 @@ function runs_view({runs_url, job, set_view}) {
     let [prune_state, set_prune_state] = React.useState(undefined);
 
     let _sorted = runs?.concat([]).sort((a,b) => b.date-a.date);
-    let latest = _sorted?.[0].date;
+    let latest = _sorted?.[0]?.date;
     let running = _sorted?.filter(r => r.status == null) || [];
 
     React.useEffect(() => {
@@ -372,7 +381,8 @@ function runs_view({runs_url, job, set_view}) {
                 show_settings && [job_settings, { job, close_settings: (reason) => { set_show_settings(false);
                                                                                      if (reason == Saved) prune() } }],
                 prune_state && [prune_modal, { job, prune_state, done: () => set_prune_state(undefined) }],
-                    runs == null ? [loading]
+                runs == null     ? [loading] :
+                runs.length == 0 ? ['h2', "No runs for this job" ]
                                  : [React.Fragment,
                                     ["table", { className: "jobs" },
                                     ["thead",

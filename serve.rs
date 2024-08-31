@@ -203,7 +203,8 @@ pub struct JobInfo {
     pub user: String,
     pub name: String,
     //pub runs: Option<Url>,
-    pub latest_run: RunInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_run: Option<RunInfo>,
     pub url: String,
     pub runs_url: String,
     pub success_url: String,
@@ -223,10 +224,10 @@ impl JobInfo {
             settings_url: uri!(get_job_settings(&job.user, &job.id)).to_string(),
             prune_url: uri!(get_prune(&job.user, &job.id, _)).to_string(),
             latest_run: match latest_run {
-                Some(r) => RunInfo::from_run(r).await?,
-                None => {
-                    let r = job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))?.unwrap();
-                    RunInfo::from_run(&r).await?
+                Some(r) => Some(RunInfo::from_run(r).await?),
+                None => match job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))? {
+                        Some(r) => Some(RunInfo::from_run(&r).await?),
+                        None => None,
                 },
             }
         })
