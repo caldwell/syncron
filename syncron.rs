@@ -12,6 +12,7 @@ use docopt::Docopt;
 mod client;
 mod serve;
 mod db;
+mod event;
 mod maybe_utf8;
 
 const USAGE: &'static str = r#"

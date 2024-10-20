@@ -9,8 +9,9 @@ use rocket::request::Request;
 use rocket::response::{Debug,Redirect, Responder, Response};
 use rocket::serde::{Serialize, Deserialize, json::Json};
 use rocket::State;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::db;
+use crate::{db, event};
 use crate::db::Db;
 use crate::maybe_utf8::MaybeUTF8;
 use crate::{wrap,wrap_str};
@@ -170,7 +171,7 @@ async fn run_stderr(db: &State<Db>, id: u128, data: String) -> WebResult<()> {
 
 async fn run_stdio(db: &State<Db>, id: u128, data: String, _kind: OutKind) -> WebResult<()> {
     let run = db::Run::from_client_id(db, id).await?;
-    run.add_stdout(&data)?;
+    run.add_stdout(&data).await?;
     Ok(())
 }
 
@@ -182,13 +183,13 @@ async fn run_complete(db: &State<Db>, id: u128, status: Json<db::ExitStatus>) ->
     Ok(())
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Progress {
     pub percent: f32,
     pub eta_seconds: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JobInfo {
     pub id: String,
     pub user: String,
@@ -234,7 +235,7 @@ impl JobInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RunInfo {
     pub unique_id: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -519,6 +520,8 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
     let _rocket = rocket::custom(figment)
         .mount("/", routes)
         .manage(db.clone())
+        .manage(db.broker().clone())
         .launch().await?;
     Ok(())
 }
+

@@ -297,9 +297,9 @@ mod tests {
         assert!(run.date - run2.date < chrono::Duration::milliseconds(1000), "Dates are less close than expected {} vs {}", run.date, run2.date);
         run2.date = run.date;
         assert_eq!(run, run2);
-        run2.add_stdout("Some text. ").expect("text added");
-        run2.add_stdout("Some more text.\n").expect("more text added");
-        run2.add_stdout("Even more text.\n").expect("even more text added");
+        run2.add_stdout("Some text. ").await.expect("text added");
+        run2.add_stdout("Some more text.\n").await.expect("more text added");
+        run2.add_stdout("Even more text.\n").await.expect("even more text added");
         run2.complete(db::ExitStatus::Exited(0)).await.expect("completed with no errors");
 
         assert_file_eq!(&db_path.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest")

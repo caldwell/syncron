@@ -6,10 +6,13 @@ use chrono::Datelike;
 use sqlx::migrate::Migrator;
 pub static MIGRATOR: Migrator = sqlx::migrate!(); // defaults to "./migrations"
 
+use crate::event::{self, Event};
+
 #[derive(Debug, Clone)]
 pub struct Db {
     db_path: PathBuf,
     sql: sqlx::SqlitePool,
+    broker: event::Broker,
 }
 
 impl Db {
@@ -24,7 +27,9 @@ impl Db {
                           .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal) // Should be the default but lets be explicit
                           .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)).await?; // Dont constantly sync(). Makes writes faster on a shared disk.
         let db = Db{ db_path: db_path.into(),
-                     sql: pool, };
+                     sql: pool,
+                     broker: Broker::new(),
+        };
         db.migrate().await?;
         Ok(db)
     }
@@ -34,6 +39,7 @@ impl Db {
     pub async fn migrate(&self)     -> Result<(), Box<dyn Error>> {
         MIGRATOR.run(&self.sql).await.map_err(|e| wrap(&e, "Failed to initialize SQLx database"))
     }
+    pub fn broker(&self)            -> &event::Broker { &self.broker }
 }
 
 
@@ -41,6 +47,7 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 
+use crate::event::Broker;
 use crate::serve;
 use crate::maybe_utf8::MaybeUTF8;
 use crate::wrap;
@@ -78,7 +85,7 @@ pub struct RetentionSettings {
     pub max_size: Option<usize>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Run {
     pub job: Job,
     pub date: chrono::DateTime<chrono::Local>,
@@ -163,19 +170,24 @@ impl Job {
         if user.is_empty() || user.contains("/") || user.starts_with(".") { Err(format!("Bad user"))? }
         if id.is_empty()   || id.contains("/")   || id.starts_with(".")   { Err(format!("Bad id"))? }
         let user_id = user_id(db, user).await?;
-        sqlx::query!(r"INSERT INTO job (user_id, id, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", user_id, id, name)
-            .execute(db.sql()).await.map_err(|e| wrap(&e, "Job ensure INSERT"))?;
+        let exists = sqlx::query!("SELECT job_id FROM job WHERE user_id = ? AND id = ?", user_id, id)
+            .fetch_optional(db.sql()).await.map_err(|e| wrap(&e, "Job ensure existence SELECT"))?.is_some();
+        let changed = sqlx::query!(r"INSERT INTO job (user_id, id, name) VALUES (?, ?, ?) ON CONFLICT DO NOTHING RETURNING true", user_id, id, name)
+            .fetch_optional(db.sql()).await.map_err(|e| wrap(&e, "Job ensure INSERT"))?.is_some();
         let job = sqlx::query!("SELECT job_id, last_progress, settings FROM job WHERE user_id = ? AND id = ?", user_id, id)
             .fetch_one(db.sql()).await.map_err(|e| wrap(&e, "Job ensure SELECT"))?;
 
-        Ok(Job { db:   db.clone(),
+        let job = Job { db:   db.clone(),
                  user: user.to_string(),
                  id:   id,
                  name: name.to_string(),
                  job_id: job.job_id,
                  last_progress_json: job.last_progress,
                  settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
-        })
+        };
+        if changed && !exists { db.broker.send(Event::job_create(&job)).await }
+        if changed &&  exists { db.broker.send(Event::job_update(&job)).await }
+        Ok(job)
     }
 
     pub async fn new(db: &Db, user: &str, id: &str) -> Result<Job, Box<dyn Error>> {
@@ -332,7 +344,7 @@ impl Job {
             };
             if will_prune {
                 debug!("Pruning {}/{}: {}", self.name, run.run_id, reason);
-                if let Err(e) = if dry_run { Ok(()) } else { run.delete().await } {
+                if let Err(e) = if dry_run { Ok(()) } else { run.delete(&reason).await } {
                     warn!("Couldn't delete {}/{}: {}", self.name, run.run_id, e);
                 } else {
                     if pruned.len() < 1000 { // with millions pruned I started running out of system RAM (64G) due to this list. Having too many in the list isn't even useful for the UI, so lets just cap this for sanity.
@@ -377,6 +389,7 @@ impl Run {
         transaction.commit().await?;
         let run = Run { run_db_id: run_db_id, job: job, date: date.into(), duration_ms: None, run_id: run_id, client_id: Some(client_id), log_path: log_path };
         trace!("created {:?}", run.client_id);
+        db.broker.send(Event::run_create(&run)).await;
         Ok(run)
     }
 
@@ -506,7 +519,7 @@ impl Run {
         self.duration_ms.unwrap_or((chrono::Local::now() - self.date).num_milliseconds() as u64)
     }
 
-    pub fn add_stdout(&self, chunk: &str) -> Result<(), Box<dyn Error>> {
+    pub async fn add_stdout(&self, chunk: &str) -> Result<(), Box<dyn Error>> {
         self.mkdir_p().map_err(|e| wrap(&*e, "add_stdout"))?;
 
         let bytes = chunk.as_bytes();
@@ -514,6 +527,7 @@ impl Run {
             .write_all(bytes).map_err(|e| wrap(&e, &format!("write {}", self.log_path().to_string_lossy())))?;
 
         self.update_progress(bytes.len())?;
+        self.job.db.broker.send(Event::run_log_append(&self, chunk)).await;
         Ok(())
     }
 
@@ -682,7 +696,7 @@ impl Run {
         Ok(Some(tokio::fs::File::open(&self.log_path()).await?))
     }
 
-    pub async fn delete(&self) -> Result<(), Box<dyn Error>> {
+    pub async fn delete(&self, reason: &str) -> Result<(), Box<dyn Error>> {
         let path = self.log_path();
         if path.is_file() {
             tokio::fs::remove_file(&path).await?;
@@ -696,6 +710,7 @@ impl Run {
             }
         }
         sqlx::query!("DELETE FROM run WHERE run_id = ?", self.run_db_id).execute(self.job.db.sql()).await?;
+        self.job.db.broker.send(Event::run_delete(&self, reason)).await;
         Ok(())
     }
 }
