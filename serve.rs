@@ -212,9 +212,10 @@ pub struct JobInfo {
     pub prune_url: String,
 }
 
-impl JobInfo {
-    pub async fn from_job(job: &db::Job, latest_run:Option<&db::Run>) -> Result<JobInfo, Box<dyn Error>> {
-        Ok(JobInfo{
+// Doesn't set latest_run as that is not in JobInfo and this can't be async or fail.
+impl From<&db::Job> for JobInfo {
+    fn from(job: &db::Job) -> Self {
+        JobInfo {
             id:   job.id.clone(),
             user: job.user.clone(),
             name: job.name.clone(),
@@ -223,14 +224,22 @@ impl JobInfo {
             success_url: uri!(get_success(&job.user, &job.id, _, _)).to_string(),
             settings_url: uri!(get_job_settings(&job.user, &job.id)).to_string(),
             prune_url: uri!(get_prune(&job.user, &job.id, _)).to_string(),
-            latest_run: match latest_run {
+            latest_run: None,
+        }
+    }
+}
+
+impl JobInfo {
+    pub async fn from_job(job: &db::Job, latest_run:Option<&db::Run>) -> Result<JobInfo, Box<dyn Error>> {
+        let mut j = JobInfo::from(job);
+        j.latest_run = match latest_run {
                 Some(r) => Some(RunInfo::from_run(r).await?),
                 None => match job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))? {
                         Some(r) => Some(RunInfo::from_run(&r).await?),
                         None => None,
                 },
-            }
-        })
+        };
+        Ok(j)
     }
 }
 
@@ -250,19 +259,28 @@ pub struct RunInfo {
     pub log_url:  Option<String>,
 }
 
-impl RunInfo {
-    pub async fn from_run(run: &db::Run) -> Result<RunInfo, Box<dyn Error>>  {
-        Ok(RunInfo{
+impl From<&db::Run> for RunInfo {
+    fn from(run: &db::Run) -> Self {
+        RunInfo{
             unique_id: run.run_db_id,
-            status: run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status,
-            progress: run.progress().map_err(|e| wrap_str(&*e, "progress"))?,
+            status:   None,
+            progress: None,
             date:     run.date.timestamp_millis(),
             duration_ms: run.duration_ms(),
             id:       run.run_id.clone(),
             log_len:  Some(run.log_len()),
             url:      Some(uri!(get_run(&run.job.user, &run.job.id, &run.run_id, _)).to_string()),
             log_url:  Some(uri!(get_run_log(&run.job.user, &run.job.id, &run.run_id, _, _)).to_string()),
-        })
+        }
+    }
+}
+
+impl RunInfo {
+    pub async fn from_run(run: &db::Run) -> Result<RunInfo, Box<dyn Error>>  {
+        let mut r = RunInfo::from(run);
+        r.status = run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status;
+        r.progress = run.progress().map_err(|e| wrap_str(&*e, "progress"))?;
+        Ok(r)
     }
 }
 
