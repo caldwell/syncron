@@ -174,18 +174,9 @@ async fn run_stdio(db: &State<Db>, id: u128, data: String, _kind: OutKind) -> We
     Ok(())
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
-pub enum ExitStatus {
-    Exited(i32),
-    Signal(i32),
-    CoreDump(i32),
-    ServerTimeout, // Server didn't get a heartbeat for some period of time
-    ClientTimeout, // Client hit timeout waiting for child to complete
-}
-
 #[post("/run/<id>/complete", data="<status>")]
 #[tracing::instrument(name="POST /run/<id>/complete", skip(db), ret)]
-async fn run_complete(db: &State<Db>, id: u128, status: Json<ExitStatus>) -> WebResult<()> {
+async fn run_complete(db: &State<Db>, id: u128, status: Json<db::ExitStatus>) -> WebResult<()> {
     let run = db::Run::from_client_id(db, id).await?;
     run.complete(*status).await?;
     Ok(())
@@ -251,7 +242,7 @@ pub struct RunInfo {
     pub date:     i64,
     pub duration_ms: u64,
     pub id:       String,
-    pub status:   Option<ExitStatus>,
+    pub status:   Option<db::ExitStatus>,
     pub progress: Option<Progress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_len:  Option<u64>,

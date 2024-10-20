@@ -7,7 +7,7 @@ use std::os::unix::process::ExitStatusExt;
 use reqwest::{header,Url};
 use reqwest::header::{CONTENT_TYPE, ACCEPT};
 
-use crate::serve;
+use crate::{db, serve};
 use crate::maybe_utf8::MaybeUTF8;
 
 #[derive(Debug)]
@@ -69,10 +69,10 @@ impl Job {
         }
         let exitcode = child.wait().await?;
         let status = match (exitcode.code(), exitcode.signal(), exitcode.core_dumped(), timeout) {
-            (_,          _,         _,     true)  => serve::ExitStatus::ClientTimeout,
-            (Some(code), _,         _,     _)     => serve::ExitStatus::Exited(code),
-            (_,          Some(sig), false, _)     => serve::ExitStatus::Signal(sig),
-            (_,          Some(sig), true,  _)     => serve::ExitStatus::CoreDump(sig),
+            (_,          _,         _,     true)  => db::ExitStatus::ClientTimeout,
+            (Some(code), _,         _,     _)     => db::ExitStatus::Exited(code),
+            (_,          Some(sig), false, _)     => db::ExitStatus::Signal(sig),
+            (_,          Some(sig), true,  _)     => db::ExitStatus::CoreDump(sig),
             (None,       None,      _,     _)     => panic!("Can't happen"),
         };
         self.api.post(&format!("/run/{}/complete", self.id), &serde_json::to_string(&status)?.as_bytes()).await?;
@@ -300,7 +300,7 @@ mod tests {
         run2.add_stdout("Some text. ").expect("text added");
         run2.add_stdout("Some more text.\n").expect("more text added");
         run2.add_stdout("Even more text.\n").expect("even more text added");
-        run2.complete(serve::ExitStatus::Exited(0)).await.expect("completed with no errors");
+        run2.complete(db::ExitStatus::Exited(0)).await.expect("completed with no errors");
 
         assert_file_eq!(&db_path.path().join("jobs").join("test-user").join("david-s-the-absolute-greatest")
                         .join(run2.date.year().to_string()).join(run2.date.month().to_string()).join(run2.date.day().to_string())
@@ -318,7 +318,7 @@ mod tests {
 
         sqlx::query!("UPDATE run SET heartbeat = 0 WHERE run_id = ?", run.run_db_id).execute(db.sql()).await.expect("update run set heartbeat");
         let info = run.info().await.expect("got info");
-        assert_eq!(info.status, Some(serve::ExitStatus::ServerTimeout));
+        assert_eq!(info.status, Some(db::ExitStatus::ServerTimeout));
     }
 
     #[tokio::test]
@@ -344,7 +344,7 @@ mod tests {
             let runs: Vec<serve::RunInfo> = serde_json::from_str(&job.api.get(&jobs[0].runs_url).await.expect("GET runs")).expect("GET runs parse");
             assert_eq!(runs.len(), 1);
             println!("runs: {:?}", runs);
-            assert_eq!(runs[0].status, Some(serve::ExitStatus::Exited(0)));
+            assert_eq!(runs[0].status, Some(db::ExitStatus::Exited(0)));
 
             let run: serve::RunInfoFull = serde_json::from_str(&job.api.get(&runs[0].url.as_ref().expect("runs[0].url")).await.expect("GET run")).expect("GET run parse");
             assert_eq!(run.cmd, cmd.to_string());

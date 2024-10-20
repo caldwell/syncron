@@ -94,7 +94,16 @@ pub struct RunInfo {
     pub cmd:    String,
     pub env:    Vec<(MaybeUTF8,MaybeUTF8)>,
     pub end:    Option<chrono::DateTime<chrono::Local>>,
-    pub status: Option<serve::ExitStatus>,
+    pub status: Option<ExitStatus>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq)]
+pub enum ExitStatus {
+    Exited(i32),
+    Signal(i32),
+    CoreDump(i32),
+    ServerTimeout, // Server didn't get a heartbeat for some period of time
+    ClientTimeout, // Client hit timeout waiting for child to complete
 }
 
 // progress files in the run dir
@@ -480,7 +489,7 @@ impl Run {
             if let Some(ts) = hb {
                 if chrono::Local::now().timestamp_millis() - ts > 30*1000 {
                     info!("Timing out job {} run {} ater {} seconds", self.job.name, self.run_id, (chrono::Local::now().timestamp_millis() - ts)/1000);
-                    self.complete(serve::ExitStatus::ServerTimeout).await?;
+                    self.complete(ExitStatus::ServerTimeout).await?;
                     info = self.get_info().await?
                 }
             } else { // If we couldn't read the heartbeat file, then write one out right now. This lets us
@@ -588,15 +597,15 @@ impl Run {
     }
 
     #[tracing::instrument(skip(self),ret)]
-    pub async fn complete(&self, status: serve::ExitStatus) -> Result<(), Box<dyn Error>> {
+    pub async fn complete(&self, status: ExitStatus) -> Result<(), Box<dyn Error>> {
         let end = Some(chrono::Local::now().timestamp_millis());
         let status_json = Some(serde_json::to_string(&status)?);
         let success = match status {
-            serve::ExitStatus::Exited(0) => true,
+            ExitStatus::Exited(0) => true,
             // If it didn't print anything but stil exited with non-zero status, then consider it success. This doesn't
             // seem strictly correct, but cron doesn't care about exit status and so a lot of cron jobs return false
             // (especially conditional ones).
-            serve::ExitStatus::Exited(_) if self.log_len() == 0 => true,
+            ExitStatus::Exited(_) if self.log_len() == 0 => true,
             _ => false,
         };
         trace!("Completing {}/{}/{} with {:?}", self.job.user, self.job.name, self.run_id, status);
