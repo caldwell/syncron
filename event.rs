@@ -26,39 +26,6 @@ pub enum EventDetail {
     RunLogAppend { chunk: String },
 }
 
-impl Event {
-    pub fn job_create(job: &db::Job) -> Self {
-        Event { topic: format!("job"),
-                detail: EventDetail::JobCreate(job.into()) }
-    }
-    pub fn job_update(job: &db::Job) -> Self {
-        Event { topic: format!("job/{}/{}", job.user, job.id),
-                detail: EventDetail::JobUpdate(job.into()) }
-    }
-    pub fn job_delete(job: &db::Job) -> Self {
-        Event { topic: format!("job/{}/{}", job.user, job.id),
-                detail: EventDetail::JobDelete }
-    }
-
-    pub fn run_create(run: &db::Run) -> Self {
-        Event { topic: format!("job/{}/{}/run", run.job.user, run.job.id),
-                detail: EventDetail::RunCreate(run.into()) }
-    }
-    pub fn run_update(run: &db::Run) -> Self {
-        Event { topic: format!("job/{}/{}/run/{}", run.job.user, run.job.id, run.run_id),
-                detail: EventDetail::RunUpdate(run.into()) }
-    }
-    pub fn run_delete(run: &db::Run, reason: &str) -> Self {
-        Event { topic: format!("job/{}/{}/run/{}", run.job.user, run.job.id, run.run_id),
-                detail: EventDetail::RunDelete { reason: reason.to_owned() } }
-    }
-
-    pub fn run_log_append(run: &db::Run, chunk: &str) -> Self {
-        Event { topic: format!("job/{}/{}/run/{}/log", run.job.user, run.job.id, run.run_id),
-                detail: EventDetail::RunLogAppend { chunk: chunk.to_owned() } }
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Broker {
     subs: Arc<Mutex<Vec<(Filter, UnboundedSender<Event>)>>>,
@@ -88,6 +55,52 @@ impl Broker {
             }
         }
         subs.retain(|s| !s.1.is_closed());
+    }
+
+    // Convenience functions for sending events with the correct topic.
+    // I don't really like these here, but they fit, typewise.
+    pub async fn send_job_create(&self, job: &db::Job) {
+        self.send(Event { topic: format!("job"),                         detail: EventDetail::JobCreate(job.into()) }).await;
+    }
+
+    pub async fn send_job_update(&self, job: &db::Job) {
+        self.send(Event { topic: format!("job/{}/{}", job.user, job.id), detail: EventDetail::JobUpdate(job.into()) }).await;
+    }
+
+    pub async fn send_job_delete(&self, job: &db::Job) {
+        self.send(Event { topic: format!("job/{}/{}", job.user, job.id), detail: EventDetail::JobDelete }).await;
+    }
+
+    pub async fn send_run_create(&self, run: &db::Run) {
+        let detail = EventDetail::RunCreate(RunInfo::from_run(run).await);
+        self.send(Event { topic: format!("job/{}/{}/latest", run.job.user, run.job.id), detail: detail.clone() }).await;
+        self.send(Event { topic: format!("job/{}/{}/run/{}", run.job.user, run.job.id, run.run_id), detail }).await;
+    }
+
+    pub async fn send_run_update(&self, run: &db::Run, status: Option<db::ExitStatus>) {
+        let mut ri: RunInfo = run.into();
+        ri.status = status;
+        let detail = EventDetail::RunUpdate(ri);
+        if run.is_latest().await.unwrap_or(false) {
+            self.send(Event { topic: format!("job/{}/{}/latest", run.job.user, run.job.id), detail: detail.clone() }).await;
+        }
+        self.send(Event { topic: format!("job/{}/{}/run/{}", run.job.user, run.job.id, run.run_id), detail }).await;
+    }
+
+    pub async fn send_run_delete(&self, run: &db::Run, reason: &str, was_latest: bool) {
+        let detail = EventDetail::RunDelete { reason: reason.to_owned() };
+        if was_latest {
+            self.send(Event { topic: format!("job/{}/{}/latest", run.job.user, run.job.id), detail: detail.clone() }).await;
+        }
+        self.send(Event { topic: format!("job/{}/{}/run/{}", run.job.user, run.job.id, run.run_id), detail }).await;
+    }
+
+    pub async fn send_log_append(&self, run: &db::Run, chunk: &str) {
+        let detail = EventDetail::RunLogAppend { chunk: chunk.to_owned() };
+        if run.is_latest().await.unwrap_or(false) {
+            self.send(Event { detail: detail.clone(), topic: format!("job/{}/{}/latest/log", run.job.user, run.job.id) }).await;
+        }
+        self.send(Event { detail, topic: format!("job/{}/{}/run/{}/log", run.job.user, run.job.id, run.run_id) }).await;
     }
 }
 

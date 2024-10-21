@@ -6,7 +6,7 @@ use chrono::Datelike;
 use sqlx::migrate::Migrator;
 pub static MIGRATOR: Migrator = sqlx::migrate!(); // defaults to "./migrations"
 
-use crate::event::{self, Event};
+use crate::event;
 
 #[derive(Debug, Clone)]
 pub struct Db {
@@ -185,8 +185,8 @@ impl Job {
                  last_progress_json: job.last_progress,
                  settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
         };
-        if changed && !exists { db.broker.send(Event::job_create(&job)).await }
-        if changed &&  exists { db.broker.send(Event::job_update(&job)).await }
+        if changed && !exists { db.broker.send_job_create(&job).await }
+        if changed &&  exists { db.broker.send_job_update(&job).await }
         Ok(job)
     }
 
@@ -389,7 +389,7 @@ impl Run {
         transaction.commit().await?;
         let run = Run { run_db_id: run_db_id, job: job, date: date.into(), duration_ms: None, run_id: run_id, client_id: Some(client_id), log_path: log_path };
         trace!("created {:?}", run.client_id);
-        db.broker.send(Event::run_create(&run)).await;
+        db.broker.send_run_create(&run).await;
         Ok(run)
     }
 
@@ -519,6 +519,12 @@ impl Run {
         self.duration_ms.unwrap_or((chrono::Local::now() - self.date).num_milliseconds() as u64)
     }
 
+    pub async fn is_latest(&self) -> Result<bool, Box<dyn Error>> {
+        Ok(sqlx::query!(r#"SELECT run_id FROM run WHERE job_id = ? ORDER BY start DESC LIMIT 1"#, self.job.job_id)
+           .fetch_one(self.job.db.sql()).await?
+           .run_id == self.run_db_id)
+    }
+
     pub async fn add_stdout(&self, chunk: &str) -> Result<(), Box<dyn Error>> {
         self.mkdir_p().map_err(|e| wrap(&*e, "add_stdout"))?;
 
@@ -527,7 +533,7 @@ impl Run {
             .write_all(bytes).map_err(|e| wrap(&e, &format!("write {}", self.log_path().to_string_lossy())))?;
 
         self.update_progress(bytes.len())?;
-        self.job.db.broker.send(Event::run_log_append(&self, chunk)).await;
+        self.job.db.broker.send_log_append(&self, chunk).await;
         Ok(())
     }
 
@@ -625,6 +631,7 @@ impl Run {
         trace!("Completing {}/{}/{} with {:?}", self.job.user, self.job.name, self.run_id, status);
         sqlx::query!("UPDATE run SET status = ?, success = ?, end = ?, client_id = NULL WHERE run_id = ?", status_json, success, end, self.run_db_id).execute(self.job.db.sql()).await?;
         self.complete_progress(end.unwrap()).await?;
+        self.job.db.broker.send_run_update(&self, Some(status)).await;
 
         match self.job.prune(None).await {
             Ok(pruned) if pruned.len() > 0 => { for p in pruned.iter() { info!("{}/{}: pruned {} ({:>5}): {}", self.job.user, self.job.name, p.run_id, human_bytes(p.size), p.reason) }
@@ -709,8 +716,9 @@ impl Run {
                 path = p.parent();
             }
         }
+        let was_latest = self.is_latest().await.unwrap_or(false);
         sqlx::query!("DELETE FROM run WHERE run_id = ?", self.run_db_id).execute(self.job.db.sql()).await?;
-        self.job.db.broker.send(Event::run_delete(&self, reason)).await;
+        self.job.db.broker.send_run_delete(&self, reason, was_latest).await;
         Ok(())
     }
 }
