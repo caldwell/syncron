@@ -293,6 +293,143 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
             }).try_collect().await?))
 }
 
+#[get("/events")]
+async fn events(broker: &State<event::Broker>, ws: rocket_ws::WebSocket) -> rocket_ws::Channel<'static> {
+    use rocket::futures::{SinkExt, StreamExt};
+    use tokio::sync::{mpsc::unbounded_channel,oneshot};
+    use std::collections::HashMap;
+    use crate::event::Event;
+
+    let broker = (*broker).clone();
+    ws.channel(move |mut stream| Box::pin(async move {
+        #[derive(Clone, Debug, Deserialize)]
+        enum Request {
+            Subscribe { topic: String },
+            Unsubscribe { sub: u64 },
+        }
+
+        #[derive(Debug, Serialize)]
+        enum Message {
+            SubscribeResponse { topic: String,
+                        #[serde(skip_serializing_if = "Option::is_none")]
+                        sub: Option<u64>,
+                        status: String,
+            },
+            UnsubscribeResponse { sub: u64, status: String },
+            Error { status: String },
+            Event {
+                sub: u64,
+                #[serde(flatten)]
+                event: Event,
+            }
+        }
+
+        fn copy_sub_to_msg_until_unsub(sub: u64, mut rx: UnboundedReceiver<event::Event>, msg_tx: &UnboundedSender<Message>, mut unsub_rx: oneshot::Receiver<()>) {
+            let msg_tx = msg_tx.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        event = rx.recv() => {
+                            let Some(event) = event else { break }; // tx closed
+                            let sent = msg_tx.send(Message::Event { sub, event });
+                            if sent.is_err() { break } // msg_rx closed
+                        },
+                        _ = &mut unsub_rx => { break } // unsubscribe request
+                    }
+                }
+            });
+        }
+        async fn send(stream: &mut rocket_ws::stream::DuplexStream, message: Message) {
+            let Ok(s) = serde_json::to_string(&message) else {
+                error!("Couldn't serialize message??? message={message:?}");
+                return;
+            };
+            let _ = stream.send(rocket_ws::Message::Text(s)).await;
+        }
+
+        let (msg_tx, mut msg_rx) = unbounded_channel();
+        let mut next_id = 0_u64;
+        let mut unsubscribe: HashMap<u64, oneshot::Sender<()>> = HashMap::new();
+        loop {
+            tokio::select! {
+                message = msg_rx.recv() => {
+                    match message {
+                        Some(msg) => send(&mut stream, msg).await,
+                        None => { error!("How did our msg_rx channel close??"); break; }
+                    }
+                },
+                message = stream.next() => {
+                    let Some(message) = message else { break };
+                    // while let Some(message) = stream.next().await {
+                    let response = match message {
+                        Ok(rocket_ws::Message::Text(s)) => {
+                            match serde_json::from_str(&s) {
+                                Ok(Request::Subscribe { topic }) => {
+                                    let id = next_id;
+                                    next_id += 1;
+
+                                    // let (unsub_tx, mut unsub_rx) = oneshot::channel();
+                                    // match broker.subscribe(&topic, move |event| {
+                                    //     if !matches!(unsub_rx.try_recv(), Err(TryRecvErr::Empty)) { return Err("Done"); }
+                                    //     msg_tx.send(Message::Event {
+                                    //         sub: id,
+                                    //         event: event,
+                                    //     })?;
+                                    //     Ok(())
+                                    // }).await {
+                                    //     Ok(_) => {
+                                    //         Some(Message::SubscribeResponse { topic: topic, sub: Some(id), status: "ok".into() })
+                                    //     },
+                                    //     Err(e) => {
+                                    //         Some(Message::SubscribeResponse { topic: topic, sub: None, status: format!("{e}") })
+                                    //     },
+                                    // }
+
+                                    match broker.subscribe(&[&topic]).await {
+                                        Ok(rx) => {
+                                            let (unsub_tx, unsub_rx) = oneshot::channel();
+                                            unsubscribe.insert(id, unsub_tx);
+                                            copy_sub_to_msg_until_unsub(id, rx, &msg_tx, unsub_rx);
+                                            Some(Message::SubscribeResponse { topic: topic, sub: Some(id), status: "ok".into() })
+                                        },
+                                        Err(e) => {
+                                            Some(Message::SubscribeResponse { topic: topic, sub: None, status: format!("{e}") })
+                                        },
+                                    }
+                                },
+                                Ok(Request::Unsubscribe { sub }) => {
+                                    if let Some(unsub_tx) = unsubscribe.remove(&sub) {
+                                        _ = unsub_tx.send(());
+                                        Some(Message::UnsubscribeResponse { sub, status: "ok".into() })
+                                    } else {
+                                        Some(Message::Error { status: format!("No subscription with id {sub}") })
+                                    }
+                                },
+                                Err(_e) => Some(Message::Error { status: "Bad request json".into() }),
+                            }
+                        },
+                        Ok(_) => None, // Ignore things we don't understand
+                        Err(rocket_ws::result::Error::ConnectionClosed) => { break },
+                        Err(rocket_ws::result::Error::AlreadyClosed) => { error!("Websocket already closed!"); break },
+                        Err(e) => { warn!("Websocket error: {e}"); return Err(e) },
+                    };
+
+                    if let Some(resp) = response {
+                        send(&mut stream, resp).await;
+                        // let Ok(s) = serde_json::to_string(&resp) else {
+                        //     error!("Couldn't serialize message??? resp={resp:?}");
+                        //     continue;
+                        // };
+                        // let _ = stream.send(rocket_ws::Message::Text(s)).await;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }))
+}
+
 #[get("/runs?<after>&<id>")]
 async fn recent_runs(db: &State<Db>, after: Option<u64>, id:Option<Vec<u64>>) -> WebResult<Json<Vec<JobInfo>>> {
     use rocket::futures::stream::{self, StreamExt, TryStreamExt};
@@ -520,7 +657,7 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
                              // client endpoints
                              run_create, run_heartbeat, run_stdout, run_stderr, run_complete,
                              // web app endpoints
-                             jobs, recent_runs, get_job, get_runs, get_run, get_run_log, get_success,
+                             jobs, events, recent_runs, get_job, get_runs, get_run, get_run_log, get_success,
                              get_job_settings, put_job_settings, get_prune, post_prune, get_settings, put_settings];
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
