@@ -18,6 +18,8 @@ use crate::{wrap,wrap_str};
 
 type WebResult<T, E = Debug<Box<dyn Error>>> = std::result::Result<T, E>; // What is this magic??
 
+/////////////////////////////////// Static files + docs ///////////////////////////////////
+
 #[get("/")]
 #[tracing::instrument(name="GET /")]
 async fn index() -> Option<(ContentType, String)> {
@@ -110,6 +112,8 @@ async fn docs(file: PathBuf) -> Option<(ContentType, String)> {
                                    })
 }
 
+/////////////////////////////////// Client API ///////////////////////////////////
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateRunReq {
     pub user: String,
@@ -183,6 +187,8 @@ async fn run_complete(db: &State<Db>, id: u128, status: Json<db::ExitStatus>) ->
     Ok(())
 }
 
+/////////////////////////////////// Web API ///////////////////////////////////
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Progress {
     pub percent: f32,
@@ -239,7 +245,7 @@ impl JobInfo {
 pub struct RunInfo {
     pub unique_id: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub url:      Option<String>,
+    pub url:      Option<String>, // Doesn't appear when when embedded in RunInfoFull
     pub date:     i64,
     pub duration_ms: u64,
     pub id:       String,
