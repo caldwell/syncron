@@ -476,8 +476,8 @@ impl Run {
     pub fn log_path(&self)             -> PathBuf {self.job.db.db_path.join(&self.log_path)} // Full path from cwd to log
     pub fn run_path(&self)             -> PathBuf {self.job.run_path(self.date)}          // Relative path from db to run dir
 
-    fn mkdir_p(&self) -> Result<(), Box<dyn Error>> {
-        std::fs::DirBuilder::new().recursive(true).create(self.job.db.db_path.join(self.run_path()))
+    async fn mkdir_p(&self) -> Result<(), Box<dyn Error>> {
+        tokio::fs::DirBuilder::new().recursive(true).create(self.job.db.db_path.join(self.run_path())).await
             .map_err(|e| wrap(&e, &format!("mkdir -p {}", self.job.db.db_path.join(self.run_path()).to_string_lossy())))
     }
 
@@ -523,7 +523,7 @@ impl Run {
     }
 
     pub async fn add_stdout(&self, chunk: &str) -> Result<(), Box<dyn Error>> {
-        self.mkdir_p().map_err(|e| wrap(&*e, "add_stdout"))?;
+        self.mkdir_p().await.map_err(|e| wrap(&*e, "add_stdout"))?;
 
         let bytes = chunk.as_bytes();
         let mut log_file = File::options().create(true).append(true).open(&self.log_path()).await.map_err(|e| wrap(&e, &format!("open {}", self.log_path().to_string_lossy())))?;
