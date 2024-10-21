@@ -222,12 +222,12 @@ impl From<&db::Job> for JobInfo {
 }
 
 impl JobInfo {
-    pub async fn from_job(job: &db::Job, latest_run:Option<&db::Run>) -> Result<JobInfo, Box<dyn Error>> {
+    pub async fn try_from_job(job: &db::Job, latest_run:Option<&db::Run>) -> Result<JobInfo, Box<dyn Error>> {
         let mut j = JobInfo::from(job);
         j.latest_run = match latest_run {
-                Some(r) => Some(RunInfo::from_run(r).await?),
+                Some(r) => Some(RunInfo::try_from_run(r).await?),
                 None => match job.latest_run().await.map_err(|e| wrap_str(&*e, "latest_run"))? {
-                        Some(r) => Some(RunInfo::from_run(&r).await?),
+                        Some(r) => Some(RunInfo::try_from_run(&r).await?),
                         None => None,
                 },
         };
@@ -268,11 +268,17 @@ impl From<&db::Run> for RunInfo {
 }
 
 impl RunInfo {
-    pub async fn from_run(run: &db::Run) -> Result<RunInfo, Box<dyn Error>>  {
+    pub async fn try_from_run(run: &db::Run) -> Result<RunInfo, Box<dyn Error>>  {
         let mut r = RunInfo::from(run);
         r.status = run.info().await.map_err(|e| wrap_str(&*e, "info"))?.status;
         r.progress = run.progress().map_err(|e| wrap_str(&*e, "progress"))?;
         Ok(r)
+    }
+    pub async fn from_run(run: &db::Run) -> RunInfo  {
+        let mut r = RunInfo::from(run);
+        r.status = run.get_info().await.ok().map(|ri| ri.status).flatten();
+        r.progress = run.progress().ok().flatten();
+        r
     }
 }
 
@@ -283,7 +289,7 @@ async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
     let jobs = db::Job::jobs(&db).await.map_err(|e| wrap(&*e, "jobs"))?;
     Ok(Json(stream::iter(jobs.iter())
             .then(async move |job: &db::Job| -> Result<JobInfo, Box<dyn Error>> {
-                    Ok(JobInfo::from_job(&job, None).await?)
+                    Ok(JobInfo::try_from_job(&job, None).await?)
             }).try_collect().await?))
 }
 
@@ -297,14 +303,14 @@ async fn recent_runs(db: &State<Db>, after: Option<u64>, id:Option<Vec<u64>>) ->
     };
     Ok(Json(stream::iter(runs.iter())
             .then(async move |run: &db::Run| -> Result<JobInfo, Box<dyn Error>> {
-                Ok(JobInfo::from_job(&run.job, Some(&run)).await?)
+                Ok(JobInfo::try_from_job(&run.job, Some(&run)).await?)
             }).try_collect().await?))
 }
 
 #[get("/job/<user>/<job_id>")]
 async fn get_job(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<JobInfo>> {
     let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
-    Ok(Json(JobInfo::from_job(&job, None).await?))
+    Ok(Json(JobInfo::try_from_job(&job, None).await?))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -331,7 +337,7 @@ async fn get_runs(db: &State<Db>, user: &str, job_id: &str, num: Option<u32>, be
     debug!("Got {} runs for {}", jobs.len(), job_id);
     Ok(Json(stream::iter(jobs.into_iter())
             .then(async move |run| -> Result<RunInfo, Box<dyn Error>> {
-                Ok(RunInfo::from_run(&run).await?)
+                Ok(RunInfo::try_from_run(&run).await?)
             }).try_collect().await?))
 }
 
