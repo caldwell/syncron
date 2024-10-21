@@ -49,7 +49,7 @@ function app({nav_el, initial_view}) {
                   ]]],
                 view.view == "jobs" ? [jobs_view, { set_view: push_view, jobs_url: "/jobs", runs_url: "/runs" }] :
                 view.view == "runs" ? [runs_view, { set_view: push_view, runs_url: view.runs_url, job: view.job }] :
-                view.view == "log"  ? [log_view,  { set_view: push_view, run_url:  view.run_url,  job: view.job }]
+                view.view == "log"  ? [log_view,  { set_view: push_view, run_url:  view.run_url,  job: view.job, run_id: view.run_id }]
                                     : ["div", { className: "alert alert-danger" }, "Can't happen"]]);
 }
 
@@ -123,17 +123,35 @@ function run_status(props) {
                     ["span", { className: "eta" }, "ETA: Unknown"]]]);
 }
 
-function synced_interval(period, offset, callback) {
-    let id = setTimeout(() => { // Sync up to *:02 and then interval over a minute
-        callback();
-        id = setInterval(callback, period);
-    }, 60*1000 - Date.now() % period + offset);
-    return () => clearInterval(id);
-}
-
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+function use_visibility(on_focus, deps) {
+    React.useEffect(() => {
+        console.log("use_visibility: mounting");
+        let abort = new AbortController();
+        let focus_abort;
+        let focus = () => {
+            focus_abort = new AbortController;
+            on_focus(focus_abort.signal);
+        };
+        document.addEventListener("visibilitychange", () => {
+            console.log(`visibility changed: ${document.hidden ? "hidden" : "not hidden"}`);
+            if (document.hidden)
+                focus_abort.abort();
+            else
+                focus();
+        }, { signal: abort.signal });
+        focus(); // Assume if we're mounted we're focused
+        return () => {
+            console.log("use_visibility: unmounting");
+            abort.abort();
+            focus_abort.abort()
+        }
+    }, deps);
+}
+
 
 function jobs_view({jobs_url, runs_url, set_view}) {
     let [jobs, set_jobs] = React.useState(null);
@@ -144,31 +162,44 @@ function jobs_view({jobs_url, runs_url, set_view}) {
     let latest = _sorted?.[0].date;
     let running = _sorted?.filter(r => r && r.status == null) || [];
 
-    React.useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            let jobs = await fetch_json(jobs_url)
-            if (!cancelled) set_jobs(jobs);
-        })();
-        return () => cancelled = true;
-    }, [jobs_url]);
-
-    let update_runs = (new_job_runs) => {
-        set_jobs((old_jobs) => {
-            let new_jobs = old_jobs.concat([]);
-            new_job_runs.forEach(new_job_run => {
-                let i = new_jobs.findIndex(job => job.runs_url == new_job_run.runs_url);
-                if (i == -1) // ??? How could this happen? I guess if a new job were created? What should we do here?
-                    return;
-                new_jobs[i].latest_run = new_job_run.latest_run;
-            });
-            return new_jobs;
-        });
-    }
-
-    use_interval_loader(5*1000, latest && url_with(runs_url, { after: latest }), (updated) => update_runs(updated));
-
-    use_interval_loader(1*1000, running.length > 0 && url_with(runs_url, running.map(r => ["id", r.unique_id])), (updated) => update_runs(updated));
+    use_visibility(async (signal) => {
+        let jobs = await fetch_json(jobs_url, { signal: signal })
+        if (!jobs) return; // aborted
+        set_jobs(jobs);
+        let es = new EventSource(url_with("/events", [ ["topic", "job"],
+                                                       ["topic", "job/+/+"],
+                                                       ["topic", "job/+/+/latest"]]));
+        signal.addEventListener('abort', () => { console.log("Closing EventSource"); es.close() });
+        es.onmessage = (message) => {
+            let event = JSON.parse(message.data);
+            console.log("Got event: ", event);
+            let [, user, id] = event.topic.split("/");
+            const update_job = (job_updater) => {
+                set_jobs((old_jobs) => {
+                    let new_jobs = old_jobs.concat([]);
+                    let i = new_jobs.findIndex(job => job.id == id && job.user == user);
+                    if (i == -1) // job_create event _should_ have happened before this so this shouldn't ever happen...
+                        return new_jobs;
+                    job_updater(new_jobs[i]);
+                    return new_jobs;
+                });
+            };
+            if ("job_create" in event)
+                set_jobs(old_jobs => old_jobs.concat([event.job_create]));
+            if ("job_update" in event)
+                update_job((j) => Object.assign(j, event.job_update));
+            if ("run_create" in event)
+                update_job((j) => j.latest_run = event.run_create);
+            if ("run_update" in event)
+                update_job((j) => j.latest_run = event.run_update);
+            if ("run_update_log_len" in event)
+                update_job((j) => j.latest_run.log_len = event.run_update_log_len);
+            if ("run_update_progress" in event)
+                update_job((j) => j.latest_run.progress = event.run_update_progress);
+            if ("run_delete" in event)
+                update_job((j) => delete j.latest_run);
+        }
+    }, [set_jobs, jobs_url]);
 
     let prune = React.useCallback(async () => {
         set_prune_state({ pruning: true, progress: { message: "Starting…" } });
@@ -325,20 +356,6 @@ function use_canvas(draw, deps) {
     return canvas_ref;
 }
 
-function use_interval_loader(interval_ms, url, callback) {
-    React.useEffect(() => {
-        if (!url) return;
-        let cancelled = false;
-        async function periodic() {
-            let data = await fetch_json(url);
-            if (cancelled) return;
-            callback(data);
-        }
-        let id = setInterval(periodic, interval_ms);
-        return () => { cancelled = true; clearInterval(id); }
-    }, [url?.toString(), interval_ms]);  // The URL object changes every time so show react the stringified one (which doesn't change)
-}
-
 function runs_view({runs_url, job, set_view}) {
     let [runs, set_runs] = React.useState(null);
     let [show_settings, set_show_settings] = React.useState(false);
@@ -348,22 +365,40 @@ function runs_view({runs_url, job, set_view}) {
     let latest = _sorted?.[0]?.date;
     let running = _sorted?.filter(r => r.status == null) || [];
 
-    React.useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            let runs = await fetch_json(url_with(runs_url, { num: 100 }))
-            if (!cancelled) set_runs(runs);
-        })();
-        return () => cancelled = true;
-    }, [runs_url]);
-
-    use_interval_loader(5*1000, latest && url_with(runs_url, { after: latest }), (new_runs) => {
-        set_runs((old_runs) => new_runs.concat(old_runs || []));
-    });
-
-    use_interval_loader(1*1000, running.length > 0 && url_with(runs_url, running.map(r => ["id", r.id])), (updated) => {
-        set_runs((old_runs) => Object.values(Object.fromEntries((old_runs||[]).concat(updated).map(r => [r.id, r])))) // run id's are unique per job so we can uniqify them with a id hash key
-    });
+    use_visibility(async (signal) => {
+        let runs = await fetch_json(url_with(runs_url, { num: 100 }), { signal })
+        if (!runs) return; // cancelled
+        set_runs(runs);
+        let es = new EventSource(url_with("/events", [ ["topic", `job/${job.user}/${job.id}`],
+                                                       ["topic", `job/${job.user}/${job.id}/run/+`] ]));
+        signal.addEventListener('abort', () => { console.log("Closing EventSource"); es.close() });
+        es.onmessage = (message) => {
+            let event = JSON.parse(message.data);
+            console.log("Got event: ", event);
+            let [,,,,run_id] = event.topic.split("/");
+            const update_run = (run_updater) =>
+                  // run id's are unique per job so we can uniqify them with a id hash key
+                  set_runs((old_runs) => {
+                      let run_obj = Object.fromEntries((old_runs||[]).map(r => [r.id, r]));
+                      run_updater(run_obj);
+                      return Object.values(run_obj);
+                  });
+            if ("job_update" in event)
+                //FIXME: We should be able to update the Job name in the view, but it comes from app()s
+                //complex internal state nonsense and I don't want to think about it right now
+                ; //update_job((j) => Object.assign(j, event.job_update));
+            if ("run_create" in event)
+                update_run(r => r[run_id] = event.run_create);
+            if ("run_update" in event)
+                update_run(r => r[run_id] = event.run_update);
+            if ("run_update_log_len" in event)
+                update_run(r => r[run_id].log_len = event.run_update_log_len);
+            if ("run_update_progress" in event)
+                update_run(r => r[run_id].progress = event.run_update_progress);
+            if ("run_delete" in event)
+                update_run(r => delete r[run_id]);
+        }
+    }, [set_runs, job.id, job.user, runs_url]);
 
     let load_more = async (count) => {
         let new_runs = await fetch_json(url_with(runs_url, { before: Math.min(...runs.map(r => r.date)), num: count }))
@@ -413,50 +448,68 @@ function runs_view({runs_url, job, set_view}) {
                                    ]]);
 }
 
-function log_view({run_url, job}) {
+function log_view({run_url, job, run_id}) {
     let [show_env, set_show_env] = React.useState(false);
     let [run, set_run] = React.useState(null);
     let [atbottom, set_atbottom] = React.useState(true);
     let status = run && status_state(run);
     const LARGE_CHUNK_SIZE = 1*1024*1024;
 
-    React.useEffect(() => {
-        let last_len;
-        async function reload() {
-            let new_run = await fetch_json(url_with(run_url, last_len ? { seek: last_len } : {}), { signal: abort.signal } );
+    const reload = async (signal) => {
+            let last_len = run?.log_len;
+            let new_run = await fetch_json(url_with(run_url, last_len ? { seek: last_len } : {}), { signal: signal } );
             if (!new_run.log && new_run.log_url) { // If the log is big enough the server won't populate it but _will_ give us a log_url that we can fetch from
                 if (new_run.log_len < 3 * LARGE_CHUNK_SIZE)
-                    new_run.log = await fetch_text(url_with(new_run.log_url, last_len ? { seek: last_len } : {}), { signal: abort.signal });
+                    new_run.log = await fetch_text(url_with(new_run.log_url, last_len ? { seek: last_len } : {}), { signal: signal });
                 else { // Very large log file. Browsers get tripped up and it starts getting very slow, so only load part of the log in.
                     if (!last_len) {
-                        new_run.log = [await fetch_text(url_with(new_run.log_url, { limit:  LARGE_CHUNK_SIZE }), { signal: abort.signal }),
+                        new_run.log = [await fetch_text(url_with(new_run.log_url, { limit:  LARGE_CHUNK_SIZE }), { signal: signal }),
                                        { skip_from: LARGE_CHUNK_SIZE, skip_to: new_run.log_len - LARGE_CHUNK_SIZE },
-                                       await fetch_text(url_with(new_run.log_url, { limit: -LARGE_CHUNK_SIZE }), { signal: abort.signal })];
+                                       await fetch_text(url_with(new_run.log_url, { limit: -LARGE_CHUNK_SIZE }), { signal: signal })];
                     } else {
                         // don't need the beginning, just stuff to tack on to the end:
-                        new_run.log   = await fetch_text(url_with(new_run.log_url, { seek: last_len }), { signal: abort.signal });
+                        new_run.log   = await fetch_text(url_with(new_run.log_url, { seek: last_len }), { signal: signal });
                     }
                 }
             }
-            if (abort.signal.aborted) return;
+            if (signal.aborted) return;
             set_atbottom(Math.abs(window.scrollMaxY - window.scrollY) < 5); // Hack. This is as close as I can come to right before react begins to render
             console.log(`scroll at load: atbottom:${atbottom}, scrollY:${window.scrollY}, scrollYMax:${window.scrollMaxY}`);
             set_run((old_run) => {
                 new_run.log = [...(old_run?.log ?? []), ...(typeof new_run.log == "string" ? [new_run.log] : (new_run.log ?? []))];
                 return new_run;
             });
-            last_len = new_run.log_len;
-            if (new_run.status != null) // Stop refreshing once the run is finished
-                clearInterval(id);
-            else if (id === undefined)
-                id = setInterval(reload, 1*1000);
-        }
+    };
 
-        let id;
-        let abort = new AbortController();
-        reload();
-        return () => { abort.abort(); clearInterval(id); }
-    }, [run_url]);
+    use_visibility(async (signal) => {
+        await reload(signal);
+        if (signal.aborted) return;
+        let es = new EventSource(url_with("/events", [ ["topic", `job/${job.user}/${job.id}/run/${run_id}`],
+                                                       ["topic", `job/${job.user}/${job.id}/run/${run_id}/log`] ]));
+        signal.addEventListener('abort', () => { console.log("Closing EventSource"); es.close() });
+        es.onmessage = (message) => {
+            let event = JSON.parse(message.data);
+            console.log("Got event: ", event);
+            const update_run = (run_updater) =>
+                  set_run((old_run) => {
+                      let new_run = Object.assign({}, old_run);
+                      run_updater(new_run);
+                      return new_run;
+                  });
+            if ("run_update" in event)
+                update_run(r => Object.assign(r, event.run_update, { log: r.log }));
+            if ("run_update_log_len" in event)
+                update_run(r => r.log_len = event.run_update_log_len);
+            if ("run_update_progress" in event)
+                update_run(r => r.progress = event.run_update_progress);
+            if ("run_log_append" in event) {
+                set_atbottom(Math.abs(window.scrollMaxY - window.scrollY) < 5); // Hack. This is as close as I can come to right before react begins to render
+                update_run(r => r.log = [...r.log, event.run_log_append.chunk]);
+            }
+            if ("run_delete" in event)
+                update_run(r => r.deleted_reason = event.run_delete.reason);
+        }
+    }, [set_run, set_atbottom, job.id, job.user, run_id, run_url]);
 
     React.useLayoutEffect(() => {
         if (status == 'Running' && atbottom) {
