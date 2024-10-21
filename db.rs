@@ -563,13 +563,13 @@ impl Run {
         // consistently as I'd hoped. It needs a 2nd (and probably 3rd) pass.
 
         let progress_path = self.log_path().with_file_name("progress");
-        let progress_str = match std::fs::read(&progress_path) {
+        let progress_str = match tokio::fs::read(&progress_path).await {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()), // No progress file means no log. And nothing to do.
             Err(e) => Err(e)?,
             Ok(bytes) => String::from_utf8(bytes)?,
         };
 
-        if let Err(e) = std::fs::remove_file(&progress_path) { // Done with it. Don't really care if we couldn't delete it.
+        if let Err(e) = tokio::fs::remove_file(&progress_path).await { // Done with it. Don't really care if we couldn't delete it.
             warn!("Couldn't delete progress file \"{}\": {}", progress_path.to_string_lossy(), e);
         }
 
