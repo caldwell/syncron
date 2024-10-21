@@ -282,6 +282,15 @@ impl RunInfo {
     }
 }
 
+use rocket::response::{stream,stream::EventStream};
+#[get("/events?<topic>")]
+async fn events(broker: &State<event::Broker>, topic: Vec<&str>) ->  WebResult<EventStream![stream::Event]> {
+    use tokio_stream::StreamExt;
+    debug!("/events: topic={topic:?}");
+    let rx = broker.subscribe(&topic).await?;
+    Ok(EventStream::from(tokio_stream::wrappers::UnboundedReceiverStream::new(rx).map(|e| stream::Event::json(&e))))
+}
+
 #[get("/jobs")]
 #[tracing::instrument(name="GET /jobs", skip(db))]
 async fn jobs(db: &State<Db>) -> WebResult<Json<Vec<JobInfo>>> {
@@ -520,7 +529,7 @@ pub async fn serve(port: u16, db: &Db, enable_shutdown: bool) -> Result<(), Box<
                              // client endpoints
                              run_create, run_heartbeat, run_stdout, run_stderr, run_complete,
                              // web app endpoints
-                             jobs, recent_runs, get_job, get_runs, get_run, get_run_log, get_success,
+                             events, jobs, recent_runs, get_job, get_runs, get_run, get_run_log, get_success,
                              get_job_settings, put_job_settings, get_prune, post_prune, get_settings, put_settings];
     if enable_shutdown { routes.append(&mut routes![shutdown]) }
     let _rocket = rocket::custom(figment)
