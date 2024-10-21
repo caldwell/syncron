@@ -35,6 +35,11 @@ Options:
   --db=<path-to-db>      Path to the db. Will be created if it doesn't exist [default: ./db]
                          (env: SYNCRON_DB)
   --port=<port>          Port to listen on [default: 8000] (env: SYNCRON_PORT)
+
+Commands:
+
+  syncron exec           Launch a new run for a job, uploading the run data to the Syncron server
+  syncron serve          Start a Syncron server in the foreground.
 "#;
 
 #[derive(Debug, serde::Deserialize)]
