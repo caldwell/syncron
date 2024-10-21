@@ -19,7 +19,7 @@ base16ct = { version = "0.1.1", features = ["alloc"] }
 nix = "0.24.1"
 rocket = { version = "0.5.0", features = ["json"] }
 rocket_db_pools = { version = "0.2.0", default-features = false, features = ["sqlx_sqlite"] }
-tokio = { version = "1", features = ["full", "process"] }
+tokio = { version = "1.40", features = ["full", "process"] }
 tokio-stream = "0.1"
 figment = "*"
 chrono = { version = "0.4", features = ["serde"] }
