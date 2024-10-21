@@ -1,12 +1,12 @@
 // Copyright © 2022 David Caldwell <david@porkrind.org>
 
 use std::error::Error;
-use std::fs::File;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use chrono::Datelike;
 use sqlx::migrate::Migrator;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 
 use crate::event::Broker;
 use crate::maybe_utf8::MaybeUTF8;
@@ -526,16 +526,16 @@ impl Run {
         self.mkdir_p().map_err(|e| wrap(&*e, "add_stdout"))?;
 
         let bytes = chunk.as_bytes();
-        File::options().create(true).append(true).open(&self.log_path()).map_err(|e| wrap(&e, &format!("open {}", self.log_path().to_string_lossy())))?
-            .write_all(bytes).map_err(|e| wrap(&e, &format!("write {}", self.log_path().to_string_lossy())))?;
+        let mut log_file = File::options().create(true).append(true).open(&self.log_path()).await.map_err(|e| wrap(&e, &format!("open {}", self.log_path().to_string_lossy())))?;
+        log_file.write_all(bytes).await.map_err(|e| wrap(&e, &format!("write {}", self.log_path().to_string_lossy())))?;
 
-        self.update_progress(bytes.len())?;
+        self.update_progress(bytes.len()).await?;
         self.job.db.broker.send_log_append(&self, chunk).await;
         self.job.db.broker.send_run_update_log_len(&self, self.log_len()).await;
         Ok(())
     }
 
-    pub fn update_progress(&self, bytes: usize) -> Result<(), Box<dyn Error>> {
+    pub async fn update_progress(&self, bytes: usize) -> Result<(), Box<dyn Error>> {
         // This is the first step of progress calculation. We keep track of when the client sends up stdout in
         // a file next to the log file called "progress". Each line is a json entry--we append a timestamp and
         // the number of bytes they sent. This is used to compute the progress on the next run, not the
@@ -544,8 +544,8 @@ impl Run {
         let prog = ProgressChunk { timestamp_ms: chrono::Local::now().timestamp_millis(), bytes: bytes };
         let progress_str = serde_json::to_string(&prog)? + "\n";
         let progress_path = self.log_path().with_file_name("progress");
-        File::options().create(true).append(true).open(&progress_path).map_err(|e| wrap(&e, &format!("open {}", progress_path.to_string_lossy())))?
-            .write_all(progress_str.as_bytes()).map_err(|e| wrap(&e, &format!("write {}", progress_path.to_string_lossy())))?;
+        let mut file = File::options().create(true).append(true).open(&progress_path).await.map_err(|e| wrap(&e, &format!("open {}", progress_path.to_string_lossy())))?;
+        file.write_all(progress_str.as_bytes()).await.map_err(|e| wrap(&e, &format!("write {}", progress_path.to_string_lossy())))?;
 
         Ok(())
     }
