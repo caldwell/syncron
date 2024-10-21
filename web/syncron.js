@@ -266,13 +266,14 @@ function success_chart({success_url, last_run_at, last_run_status}) {
         let day = Array.from(Array(days)).map(_=>[]);
         let ms__day = 24*3600*1000;
         let x__day = canvas.width / days;
-        let start = Date.now() - days*ms__day;
+        let now = Date.now();
+        let start = now - days*ms__day;
         let gap_px = 2;
         // Break the runs up into days based on their start times (days ago, not calendar days).
         // Also note that when we subdivide later on we don't take time into account, we just divide the day
         // up evenly based on how many jobs are there.
         for (let h of successes)
-            day[Math.max(0, Math.floor((h[0]-start)/ms__day))].push(h);
+            day[Math.max(0, Math.floor((Math.min(now-1,h[0])-start)/ms__day))].push(h);
         for (let [d, h] of day.entries()) {
             if (h.length == 0)
                 h.push([]); // make the loop run and color it grey.
