@@ -22,6 +22,8 @@ pub enum EventDetail {
     JobDelete,
     RunCreate(RunInfo),
     RunUpdate(RunInfo),
+    RunUpdateLogLen(u64),
+    RunUpdateProgress(Progress),
     RunDelete { reason: String },
     RunLogAppend { chunk: String },
 }
@@ -101,6 +103,23 @@ impl Broker {
             self.send(Event { detail: detail.clone(), topic: format!("job/{}/{}/latest/log", run.job.user, run.job.id) }).await;
         }
         self.send(Event { detail, topic: format!("job/{}/{}/run/{}/log", run.job.user, run.job.id, run.run_id) }).await;
+    }
+
+    pub async fn send_run_update_log_len(&self, run: &db::Run, bytes: u64) {
+        let detail = EventDetail::RunUpdateLogLen(bytes);
+        if run.is_latest().await.unwrap_or(false) {
+            self.send(Event { detail: detail.clone(), topic: format!("job/{}/{}/latest", run.job.user, run.job.id) }).await;
+        }
+        self.send(Event { detail, topic: format!("job/{}/{}/run/{}", run.job.user, run.job.id, run.run_id) }).await;
+    }
+
+    pub async fn send_run_update_progress(&self, run: &db::Run) {
+        let Ok(Some(progress)) = run.progress() else { return };
+        let detail: EventDetail = EventDetail::RunUpdateProgress(progress);
+        if run.is_latest().await.unwrap_or(false) {
+            self.send(Event { detail: detail.clone(), topic: format!("job/{}/{}/latest", run.job.user, run.job.id) }).await;
+        }
+        self.send(Event { detail, topic: format!("job/{}/{}/run/{}", run.job.user, run.job.id, run.run_id) }).await;
     }
 }
 

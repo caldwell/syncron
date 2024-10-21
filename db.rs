@@ -534,6 +534,7 @@ impl Run {
 
         self.update_progress(bytes.len())?;
         self.job.db.broker.send_log_append(&self, chunk).await;
+        self.job.db.broker.send_run_update_log_len(&self, self.log_len()).await;
         Ok(())
     }
 
@@ -609,6 +610,7 @@ impl Run {
         let heartbeat = Some(chrono::Local::now().timestamp_millis());
         info!("Run [{}] {}/{}/{} Set heartbeat: {:?}", self.run_db_id, self.job.user, self.job.name, self.run_id, heartbeat);
         sqlx::query!("UPDATE run SET heartbeat = ? WHERE run_id = ?", heartbeat, self.run_db_id).execute(self.job.db.sql()).await?;
+        self.job.db.broker.send_run_update_progress(&self).await;
         Ok(())
     }
 
