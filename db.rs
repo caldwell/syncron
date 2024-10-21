@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Datelike;
 use sqlx::migrate::Migrator;
-use tokio::fs::File;
+use tokio::fs::{read, remove_dir, remove_file, DirBuilder, File};
 use tokio::io::AsyncWriteExt;
 
 use crate::event::Broker;
@@ -477,7 +477,7 @@ impl Run {
     pub fn run_path(&self)             -> PathBuf {self.job.run_path(self.date)}          // Relative path from db to run dir
 
     async fn mkdir_p(&self) -> Result<(), Box<dyn Error>> {
-        tokio::fs::DirBuilder::new().recursive(true).create(self.job.db.db_path.join(self.run_path())).await
+        DirBuilder::new().recursive(true).create(self.job.db.db_path.join(self.run_path())).await
             .map_err(|e| wrap(&e, &format!("mkdir -p {}", self.job.db.db_path.join(self.run_path()).to_string_lossy())))
     }
 
@@ -563,13 +563,13 @@ impl Run {
         // consistently as I'd hoped. It needs a 2nd (and probably 3rd) pass.
 
         let progress_path = self.log_path().with_file_name("progress");
-        let progress_str = match tokio::fs::read(&progress_path).await {
+        let progress_str = match read(&progress_path).await {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()), // No progress file means no log. And nothing to do.
             Err(e) => Err(e)?,
             Ok(bytes) => String::from_utf8(bytes)?,
         };
 
-        if let Err(e) = tokio::fs::remove_file(&progress_path).await { // Done with it. Don't really care if we couldn't delete it.
+        if let Err(e) = remove_file(&progress_path).await { // Done with it. Don't really care if we couldn't delete it.
             warn!("Couldn't delete progress file \"{}\": {}", progress_path.to_string_lossy(), e);
         }
 
@@ -704,21 +704,21 @@ impl Run {
         self.log_path().metadata().map(|m| m.len()).unwrap_or(0)
     }
 
-    pub async fn log_file(&self) -> Result<Option<tokio::fs::File>, Box<dyn Error>> {
+    pub async fn log_file(&self) -> Result<Option<File>, Box<dyn Error>> {
         if !self.log_path().is_file() { return Ok(None) }
-        Ok(Some(tokio::fs::File::open(&self.log_path()).await?))
+        Ok(Some(File::open(&self.log_path()).await?))
     }
 
     pub async fn delete(&self, reason: &str) -> Result<(), Box<dyn Error>> {
         let path = self.log_path();
         if path.is_file() {
-            tokio::fs::remove_file(&path).await?;
+            remove_file(&path).await?;
             // Because we nest log dirs to keep direntry counts down ("2024/8/9/2024-08-09T00:00:01.384-07:00/log"),
             // after we've deleted the log file try to delete parent directories until we can't any more.
             let mut path = path.parent();
             loop {
                 let Some(p) = path else { break };
-                if tokio::fs::remove_dir(p).await.is_err() { break }
+                if remove_dir(p).await.is_err() { break }
                 path = p.parent();
             }
         }
