@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tokio::sync::{mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender}, Mutex};
 
-use crate::db;
+use crate::{db, serve::{JobInfo, Progress, RunInfo}};
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Event {
@@ -17,11 +17,11 @@ pub struct Event {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventDetail {
-    JobCreate(crate::serve::JobInfo),
-    JobUpdate(crate::serve::JobInfo),
+    JobCreate(JobInfo),
+    JobUpdate(JobInfo),
     JobDelete,
-    RunCreate(crate::serve::RunInfo),
-    RunUpdate(crate::serve::RunInfo),
+    RunCreate(RunInfo),
+    RunUpdate(RunInfo),
     RunDelete { reason: String },
     RunLogAppend { chunk: String },
 }
