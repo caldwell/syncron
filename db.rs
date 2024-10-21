@@ -1,18 +1,23 @@
 // Copyright © 2022 David Caldwell <david@porkrind.org>
 
-use std::path::{Path,PathBuf};
+use std::error::Error;
+use std::fs::File;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 use chrono::Datelike;
 use sqlx::migrate::Migrator;
-pub static MIGRATOR: Migrator = sqlx::migrate!(); // defaults to "./migrations"
 
-use crate::event;
+use crate::event::Broker;
+use crate::maybe_utf8::MaybeUTF8;
+use crate::serve;
+use crate::wrap;
 
 #[derive(Debug, Clone)]
 pub struct Db {
     db_path: PathBuf,
     sql: sqlx::SqlitePool,
-    broker: event::Broker,
+    broker: Broker,
 }
 
 impl Db {
@@ -37,20 +42,12 @@ impl Db {
     pub fn sql(&self)               -> &sqlx::SqlitePool { &self.sql }
     pub fn jobs_path(&self)         -> PathBuf { "jobs".into() }
     pub async fn migrate(&self)     -> Result<(), Box<dyn Error>> {
+        static MIGRATOR: Migrator = sqlx::migrate!(); // defaults to "./migrations"
+        // TODO: Wrap an sqlx::SqliteConnection and implement sqlx::Migrate for it so it can be noisy and log migrations.
         MIGRATOR.run(&self.sql).await.map_err(|e| wrap(&e, "Failed to initialize SQLx database"))
     }
-    pub fn broker(&self)            -> &event::Broker { &self.broker }
+    pub fn broker(&self)            -> &Broker { &self.broker }
 }
-
-
-use std::error::Error;
-use std::fs::File;
-use std::io::Write;
-
-use crate::event::Broker;
-use crate::serve;
-use crate::maybe_utf8::MaybeUTF8;
-use crate::wrap;
 
 #[derive(Debug, Clone)]
 pub struct Job {
