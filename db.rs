@@ -194,20 +194,20 @@ impl Job {
                                    FROM job j
                                    JOIN user u ON u.user_id = j.user_id
                                   WHERE u.name = ? AND j.id = ?",
-                     user, id)
-            .fetch_optional(db.sql()).await? {
-                Some(job) => {
-        Some(Job { db:   db.clone(),
-                 user: user.to_string(),
-                 id:   id.to_string(),
-                 name:  job.name,
-                 job_id: job.job_id,
-                 last_progress_json: job.last_progress,
-                 settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
-        })
-                },
-                None => None,
-            })
+                              user, id)
+           .fetch_optional(db.sql()).await? {
+               Some(job) => {
+                   Some(Job { db:   db.clone(),
+                              user: user.to_string(),
+                              id:   id.to_string(),
+                              name:  job.name,
+                              job_id: job.job_id,
+                              last_progress_json: job.last_progress,
+                              settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
+                   })
+               },
+               None => None,
+           })
     }
 
     pub async fn from_id(db: &Db, job_id: i64) -> Result<Job, Box<dyn Error>> {
