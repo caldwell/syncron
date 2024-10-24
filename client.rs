@@ -6,9 +6,14 @@ use std::os::unix::process::ExitStatusExt;
 
 use reqwest::{header,Url};
 use reqwest::header::{CONTENT_TYPE, ACCEPT};
+use rocket::response::stream::stream; // Rocket exports these so we don't need them in our Cargo.toml
+use rocket::futures::stream::Stream;
 
 use crate::{db, serve};
 use crate::maybe_utf8::MaybeUTF8;
+
+#[path="server-sent-events.rs"]
+mod server_sent_events;
 
 #[derive(Debug)]
 pub struct Job {
@@ -138,6 +143,37 @@ impl Api {
         trace!("API: {} -> {}", self.server.join(path)?, resp_str);
         Ok(resp_str)
     }
+
+    pub async fn get_events_bytes_stream(&self, topics: &[&str]) -> Result<impl tokio_stream::Stream<Item = Result<rocket::http::hyper::body::Bytes, reqwest::Error>>, Box<dyn Error>> {
+        let mut url = self.server.join("/events")?; {
+            let mut query = url.query_pairs_mut();
+            query.clear();
+            for topic in topics.into_iter() {
+                query.append_pair("topic", topic);
+            }
+        }
+        let resp = self.ua.get(url)
+            .send()
+            .await?;
+        resp.error_for_status_ref()?;
+        Ok(resp.bytes_stream())
+    }
+
+    pub async fn get_events_stream(&self, topics: &[&str]) -> Result<impl Stream<Item = crate::event::Event>, Box<dyn Error>> {
+        Ok(Self::syncron_event_stream(server_sent_events::server_sent_events_stream(self.get_events_bytes_stream(topics).await?)))
+    }
+
+    pub fn syncron_event_stream(sse: impl Stream<Item = server_sent_events::ServerSentEvent>) -> impl Stream<Item = crate::event::Event> {
+        stream! {
+            for await ev in sse {
+                match serde_json::from_str(&ev.data) {
+                    Err(_e) => { warn!("Bad json from Server Sent Event: {}", ev.data) },
+                    Ok(event) => yield event,
+                }
+            }
+        }
+    }
+
     pub fn is_404(err: &anyhow::Error) -> bool {
         match err.downcast_ref::<reqwest::Error>() {
             Some(e) => e.status() == Some(reqwest::StatusCode::NOT_FOUND),
