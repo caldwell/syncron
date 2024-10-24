@@ -333,6 +333,7 @@ impl Job {
         let sizes: Vec<(usize,usize)> = runs.iter().map(|r| { let size = r.log_len() as usize; total += size; (size, total) }).collect();
         let now = chrono::Local::now();
         let mut pruned = vec![];
+        let mut limiter = NotSoFast::new(std::time::Duration::from_millis(1000/10));
         if let Some(ref mut stats) = stats { **stats = PruneStats::default() };
         for (n, (run, (size, total_size))) in runs.iter().zip(sizes.iter()).enumerate().rev() {
             let (reason, will_prune) = match (retention.max_age.map(|t| t as i64), now.signed_duration_since(run.date).num_days(),
@@ -344,7 +345,7 @@ impl Job {
                 _ => (format!(""), false),
             };
             if will_prune {
-                debug!("Pruning {}/{}: {}", self.name, run.run_id, reason);
+                info!("Pruning {}/{}: {}", self.name, run.run_id, reason);
                 if let Err(e) = if dry_run { Ok(()) } else { run.delete(&reason).await } {
                     warn!("Couldn't delete {}/{}: {}", self.name, run.run_id, e);
                 } else {
@@ -363,11 +364,33 @@ impl Job {
                     stats.kept.size += size;
                 }
             }
+            if let Some(ref stats) = stats {
+                limiter.op(async || self.db.broker.send_prune_progress(&self, stats, runs.len()).await).await;
+            }
         }
         Ok(pruned)
     }
     pub async fn prune_dry_run(&self, stats: Option<&mut PruneStats>, settings: Option<RetentionSettings>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(true,  stats, settings).await }
     pub async fn prune(&self,         stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(false, stats, None).await }
+}
+
+struct NotSoFast {
+    last: Option<std::time::Instant>,
+    min_gap: std::time::Duration,
+}
+impl NotSoFast {
+    pub fn new(min_gap: std::time::Duration) -> NotSoFast {
+        NotSoFast { min_gap, last: None }
+    }
+    pub async fn op<R, FR: std::future::Future<Output = R>,F: FnOnce() -> FR>(&mut self, it: F) -> Option<R> {
+        match self.last.map(|l| l.elapsed() > self.min_gap) {
+            Some(true) | None => {
+                self.last = Some(std::time::Instant::now());
+                Some(it().await)
+            },
+            _ => None,
+        }
+    }
 }
 
 impl Run {

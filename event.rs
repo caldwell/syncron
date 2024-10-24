@@ -26,6 +26,7 @@ pub enum EventDetail {
     RunUpdateProgress(Progress),
     RunDelete { reason: String },
     RunLogAppend { chunk: String },
+    PruneProgress { total: usize, current: db::PruneStats },
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +121,11 @@ impl Broker {
             self.send(Event { detail: detail.clone(), topic: format!("job/{}/{}/latest", run.job.user, run.job.id) }).await;
         }
         self.send(Event { detail, topic: format!("job/{}/{}/run/{}", run.job.user, run.job.id, run.run_id) }).await;
+    }
+
+    pub async fn send_prune_progress(&self, job: &db::Job, stats: &db::PruneStats, runs: usize) {
+        let detail: EventDetail = EventDetail::PruneProgress { total: runs, current: stats.clone() };
+        self.send(Event { detail, topic: format!("job/{}/{}/prune", job.user, job.id) }).await;
     }
 }
 
