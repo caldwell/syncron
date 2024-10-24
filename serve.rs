@@ -323,9 +323,9 @@ async fn recent_runs(db: &State<Db>, after: Option<u64>, id:Option<Vec<u64>>) ->
 }
 
 #[get("/job/<user>/<job_id>")]
-async fn get_job(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<JobInfo>> {
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
-    Ok(Json(JobInfo::try_from_job(&job, None).await?))
+async fn get_job(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Option<Json<JobInfo>>> {
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
+    Ok(Some(Json(JobInfo::try_from_job(&job, None).await?)))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -342,25 +342,25 @@ pub struct RunInfoFull {
 
 #[get("/job/<user>/<job_id>/run?<num>&<before>&<after>&<id>")]
 #[tracing::instrument(name="GET /job/<user>/<job_id>/run", skip(db))]
-async fn get_runs(db: &State<Db>, user: &str, job_id: &str, num: Option<u32>, before: Option<u64>, after: Option<u64>, id:Option<Vec<&str>>) -> WebResult<Json<Vec<RunInfo>>> {
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+async fn get_runs(db: &State<Db>, user: &str, job_id: &str, num: Option<u32>, before: Option<u64>, after: Option<u64>, id:Option<Vec<&str>>) -> WebResult<Option<Json<Vec<RunInfo>>>> {
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
     use rocket::futures::stream::{self, StreamExt, TryStreamExt};
     let jobs = match id {
         Some(id) if id.len() > 0  => job.runs_from_ids(&id).await?,
         _                         => job.runs(num, before, after).await?
     };
     debug!("Got {} runs for {}", jobs.len(), job_id);
-    Ok(Json(stream::iter(jobs.into_iter())
+    Ok(Some(Json(stream::iter(jobs.into_iter())
             .then(async move |run| -> Result<RunInfo, Box<dyn Error>> {
                 Ok(RunInfo::try_from_run(&run).await?)
-            }).try_collect().await?))
+            }).try_collect().await?)))
 }
 
 #[get("/job/<user>/<job_id>/run/<run_id>?<seek>")]
 #[tracing::instrument(name="GET /job/<user>/<job_id>/run/<run_id>?<seek>", skip(db))]
-async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: Option<u64>) -> WebResult<Json<RunInfoFull>> {
+async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: Option<u64>) -> WebResult<Option<Json<RunInfoFull>>> {
     //Err(Debug(format!("This is a test")))?;
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
     let run = job.run(run_id).await.map_err(|e| wrap(&*e, "run"))?;
     let info = run.info().await.map_err(|e| wrap(&*e, "info"))?;
     let (log, log_len, log_url) = match run.log_len() {
@@ -375,7 +375,7 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
         },
         log_len               => (None, Some(log_len), Some(uri!(get_run_log(user, job_id, run_id, _, _)).to_string())),
     };
-    Ok(Json(RunInfoFull{
+    Ok(Some(Json(RunInfoFull{
         run_info: RunInfo {
             unique_id: run.run_db_id,
             status:   info.status,
@@ -391,7 +391,7 @@ async fn get_run(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: O
         env:      info.env,
         log:      log,
         seek:     seek,
-    }))
+    })))
 }
 
 struct LogStreamer {
@@ -413,7 +413,7 @@ impl<'r> Responder<'r, 'static> for LogStreamer {
 #[get("/job/<user>/<job_id>/run/<run_id>/log?<seek>&<limit>")]
 #[tracing::instrument(name="GET /job/<user>/<job_id>/run/<run_id>/log?<seek>&<limit>", skip(db))]
 async fn get_run_log(db: &State<Db>, user: &str, job_id: &str, run_id: &str, seek: Option<u64>, limit: Option<i64>) -> WebResult<Option<LogStreamer>> {
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
     let run = job.run(run_id).await.map_err(|e| wrap(&*e, "run"))?;
     let Some(mut log) = run.log_file().await.map_err(|e| wrap(&*e, "log"))? else {
         return Ok(None);
@@ -458,23 +458,23 @@ pub fn apply_limit(len: u64, seek: Option<u64>, limit: Option<i64>) -> (u64, u64
 
 
 #[get("/job/<user>/<job_id>/success?<before>&<after>")]
-async fn get_success(db: &State<Db>, user: &str, job_id: &str, before: Option<u64>, after: Option<u64>) -> WebResult<Json<Vec<(i64,Option<bool>)>>> {
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
-    Ok(Json(job.successes(before, after).await?))
+async fn get_success(db: &State<Db>, user: &str, job_id: &str, before: Option<u64>, after: Option<u64>) -> WebResult<Option<Json<Vec<(i64,Option<bool>)>>>> {
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
+    Ok(Some(Json(job.successes(before, after).await?)))
 }
 
 
 #[get("/job/<user>/<job_id>/settings")]
-async fn get_job_settings(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<db::JobSettings>> {
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
-    Ok(Json(job.settings))
+async fn get_job_settings(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Option<Json<db::JobSettings>>> {
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
+    Ok(Some(Json(job.settings)))
 }
 
 #[put("/job/<user>/<job_id>/settings", data="<settings>")]
-async fn put_job_settings(db: &State<Db>, user: &str, job_id: &str, settings: Json<db::JobSettings>) -> WebResult<()> {
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+async fn put_job_settings(db: &State<Db>, user: &str, job_id: &str, settings: Json<db::JobSettings>) -> WebResult<Option<()>> {
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
     job.update_settings(&settings).await?;
-    Ok(())
+    Ok(Some(()))
 }
 
 
@@ -485,19 +485,19 @@ struct PruneResult {
 }
 
 #[get("/job/<user>/<job_id>/prune?<settings>")]
-async fn get_prune(db: &State<Db>, user: &str, job_id: &str, settings: Option<Json<db::RetentionSettings>>) -> WebResult<Json<PruneResult>> {
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+async fn get_prune(db: &State<Db>, user: &str, job_id: &str, settings: Option<Json<db::RetentionSettings>>) -> WebResult<Option<Json<PruneResult>>> {
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
     let mut stats = db::PruneStats::default();
     let pruned = job.prune_dry_run(Some(&mut stats), settings.map(|s| s.into_inner())).await?;
-    Ok(Json(PruneResult { pruned, stats }))
+    Ok(Some(Json(PruneResult { pruned, stats })))
 }
 
 #[post("/job/<user>/<job_id>/prune")]
-async fn post_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Json<PruneResult>> {
-    let job = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))?;
+async fn post_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Option<Json<PruneResult>>> {
+    let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
     let mut stats = db::PruneStats::default();
     let pruned = job.prune(Some(&mut stats)).await?;
-    Ok(Json(PruneResult { pruned, stats }))
+    Ok(Some(Json(PruneResult { pruned, stats })))
 }
 
 #[derive(Debug, Serialize, Deserialize)]

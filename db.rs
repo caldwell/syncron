@@ -187,16 +187,17 @@ impl Job {
         Ok(job)
     }
 
-    pub async fn new(db: &Db, user: &str, id: &str) -> Result<Job, Box<dyn Error>> {
+    pub async fn new(db: &Db, user: &str, id: &str) -> Result<Option<Job>, Box<dyn Error>> {
         if user.is_empty() || user.contains("/") || user.starts_with(".") { Err(format!("Bad user"))? }
         if id.is_empty()   || id.contains("/")   || id.starts_with(".")   { Err(format!("Bad id"))? }
-        let job = sqlx::query!(r"SELECT j.job_id, j.name, j.last_progress, j.settings as settings
+        Ok(match sqlx::query!(r"SELECT j.job_id, j.name, j.last_progress, j.settings as settings
                                    FROM job j
                                    JOIN user u ON u.user_id = j.user_id
                                   WHERE u.name = ? AND j.id = ?",
                      user, id)
-            .fetch_one(db.sql()).await?;
-        Ok(Job { db:   db.clone(),
+            .fetch_optional(db.sql()).await? {
+                Some(job) => {
+        Some(Job { db:   db.clone(),
                  user: user.to_string(),
                  id:   id.to_string(),
                  name:  job.name,
@@ -204,6 +205,9 @@ impl Job {
                  last_progress_json: job.last_progress,
                  settings: serde_sqlite_jsonb::from_reader(&*job.settings).unwrap_or(JobSettings::default()),
         })
+                },
+                None => None,
+            })
     }
 
     pub async fn from_id(db: &Db, job_id: i64) -> Result<Job, Box<dyn Error>> {
