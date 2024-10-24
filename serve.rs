@@ -292,7 +292,7 @@ use rocket::response::{stream,stream::EventStream};
 #[get("/events?<topic>")]
 async fn events(broker: &State<event::Broker>, topic: Vec<&str>) ->  WebResult<EventStream![stream::Event]> {
     use tokio_stream::StreamExt;
-    debug!("/events: topic={topic:?}");
+    info!("/events: topic={topic:?}");
     let rx = broker.subscribe(&topic).await?;
     Ok(EventStream::from(tokio_stream::wrappers::UnboundedReceiverStream::new(rx).map(|e| stream::Event::json(&e))))
 }
