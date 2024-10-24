@@ -9,7 +9,6 @@ use rocket::request::Request;
 use rocket::response::{Debug,Redirect, Responder, Response};
 use rocket::serde::{Serialize, Deserialize, json::Json};
 use rocket::State;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{db, event};
 use crate::db::Db;
