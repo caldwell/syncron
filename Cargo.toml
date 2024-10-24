@@ -34,6 +34,7 @@ comrak ="0.12"
 zip = { git = "https://github.com/caldwell/zip-rs.git", branch = "faster-cde-rejection" }
 rand = "0.8.5"
 sqlx = { version = "0.7.4", features = [ "runtime-tokio-rustls", "sqlite", "macros", "migrate", "json" ] } # See also: .cargo/config.toml
+anyhow = "1.0.91"
 
 [dev-dependencies]
 simple_logger = { version = "2.2", default-features = false, features = [] }

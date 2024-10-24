@@ -113,7 +113,7 @@ impl Api {
         })
     }
 
-    pub async fn post(&self, path: &str, body: &[u8]) -> Result<String, Box<dyn Error>> {
+    pub async fn post(&self, path: &str, body: &[u8]) -> anyhow::Result<String> {
         let bod: Vec<u8> = body.into();
         let resp = self.ua.post(self.server.join(path)?)
             .header(CONTENT_TYPE, "application/json")
@@ -128,7 +128,7 @@ impl Api {
     }
 
     #[allow(dead_code)]
-    pub async fn get(&self, path: &str) -> Result<String, Box<dyn Error>> {
+    pub async fn get(&self, path: &str) -> anyhow::Result<String> {
         let resp = self.ua.get(self.server.join(path)?)
             .send()
             .await?;
@@ -137,6 +137,12 @@ impl Api {
         let resp_str = resp.text().await?;
         trace!("API: {} -> {}", self.server.join(path)?, resp_str);
         Ok(resp_str)
+    }
+    pub fn is_404(err: &anyhow::Error) -> bool {
+        match err.downcast_ref::<reqwest::Error>() {
+            Some(e) => e.status() == Some(reqwest::StatusCode::NOT_FOUND),
+            None => false,
+        }
     }
 }
 
