@@ -778,7 +778,7 @@ impl Run {
 
 pub fn time_from_timestamp_ms(timestamp_ms: i64) -> chrono::DateTime<chrono::Local> {
     use chrono::TimeZone;
-    chrono::Local.timestamp_millis(timestamp_ms).into()
+    chrono::Local.timestamp_millis_opt(timestamp_ms).earliest().expect("bad timestamp").into()
 }
 
 pub fn time_string_from_timestamp_ms(timestamp_ms: i64) -> String {
