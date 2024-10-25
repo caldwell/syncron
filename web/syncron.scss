@@ -66,6 +66,20 @@ nav.navbar {
     tr.Failure {@extend .table-danger;}
     tr.Running {@extend .table-info;}
 
+    tr.Running td:first-child svg {
+        animation: 5s infinite normal linear spinning;
+    }
+
+    @keyframes spinning {
+        from {
+            rotate:0deg;
+        }
+        to {
+            rotate: 360deg;
+        }
+    }
+
+
     button { @extend .btn;}
     button.Success {@extend .btn-success;}
     button.Failure {@extend .btn-danger;}
