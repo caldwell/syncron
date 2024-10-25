@@ -320,13 +320,13 @@ impl Job {
         Ok(())
     }
 
-    async fn _prune(&self, dry_run: bool, mut stats: Option<&mut PruneStats>, settings: Option<RetentionSettings>) -> Result<Vec<Pruned>, Box<dyn Error>> {
+    async fn _prune(&self, dry_run: bool, force_stats: bool, settings: Option<RetentionSettings>) -> Result<Option<(PruneStats, Vec<Pruned>)>, Box<dyn Error>> {
         let retention = settings.unwrap_or(match self.settings.retention {
             JobRetention::Custom(retention) => retention,
             JobRetention::Default => Settings::load(&self.db).await?.retention,
         });
         debug!("Retention settings for {}: {:?}", self.name, retention);
-        if retention == RetentionSettings::default() && stats.is_none() { return Ok(vec![]) }
+        if retention == RetentionSettings::default() && !force_stats { return Ok(None) }
         let runs = self.runs(None, None, None).await?;
         debug!("Considering {} [{} runs]", self.name, runs.len());
         let mut total = 0;
@@ -334,7 +334,7 @@ impl Job {
         let now = chrono::Local::now();
         let mut pruned = vec![];
         let mut limiter = NotSoFast::new(std::time::Duration::from_millis(1000/10));
-        if let Some(ref mut stats) = stats { **stats = PruneStats::default() };
+        let mut stats  = PruneStats::default();
         for (n, (run, (size, total_size))) in runs.iter().zip(sizes.iter()).enumerate().rev() {
             let (reason, will_prune) = match (retention.max_age.map(|t| t as i64), now.signed_duration_since(run.date).num_days(),
                                               retention.max_runs,
@@ -352,26 +352,20 @@ impl Job {
                     if pruned.len() < 1000 { // with millions pruned I started running out of system RAM (64G) due to this list. Having too many in the list isn't even useful for the UI, so lets just cap this for sanity.
                         pruned.push(Pruned { job_id: self.job_id, run_id: run.run_id.clone(), size: *size, reason });
                     }
-                    if let Some(ref mut stats) = stats {
-                        stats.pruned.runs += 1;
-                        stats.pruned.size += size;
-                    }
+                    stats.pruned.runs += 1;
+                    stats.pruned.size += size;
                 }
             } else {
                 debug!("Not Pruning {}/{}: {:?},{:?} {:?},{:?} {:?},{:?}", self.name, run.run_id, retention.max_age, now.signed_duration_since(run.date).num_days(), retention.max_runs, n, retention.max_size, total_size);
-                if let Some(ref mut stats) = stats {
-                    stats.kept.runs += 1;
-                    stats.kept.size += size;
-                }
+                stats.kept.runs += 1;
+                stats.kept.size += size;
             }
-            if let Some(ref stats) = stats {
-                limiter.op(async || self.db.broker.send_prune_progress(&self, stats, runs.len()).await).await;
-            }
+            limiter.op(async || self.db.broker.send_prune_progress(&self, &stats, runs.len()).await).await;
         }
-        Ok(pruned)
+        Ok(Some((stats, pruned)))
     }
-    pub async fn prune_dry_run(&self, stats: Option<&mut PruneStats>, settings: Option<RetentionSettings>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(true,  stats, settings).await }
-    pub async fn prune(&self,         stats: Option<&mut PruneStats>) -> Result<Vec<Pruned>, Box<dyn Error>> { self._prune(false, stats, None).await }
+    pub async fn prune_dry_run(&self, force_stats: bool, settings: Option<RetentionSettings>) -> Result<Option<(PruneStats, Vec<Pruned>)>, Box<dyn Error>> { self._prune(true,  force_stats, settings).await }
+    pub async fn prune(&self,         force_stats: bool) -> Result<Option<(PruneStats, Vec<Pruned>)>, Box<dyn Error>> { self._prune(false, force_stats, None).await }
 }
 
 struct NotSoFast {

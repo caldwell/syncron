@@ -486,16 +486,14 @@ struct PruneResult {
 #[get("/job/<user>/<job_id>/prune?<settings>")]
 async fn get_prune(db: &State<Db>, user: &str, job_id: &str, settings: Option<Json<db::RetentionSettings>>) -> WebResult<Option<Json<PruneResult>>> {
     let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
-    let mut stats = db::PruneStats::default();
-    let pruned = job.prune_dry_run(Some(&mut stats), settings.map(|s| s.into_inner())).await?;
+    let Some((stats, pruned)) = job.prune_dry_run(true, settings.map(|s| s.into_inner())).await? else { unreachable!() };
     Ok(Some(Json(PruneResult { pruned, stats })))
 }
 
 #[post("/job/<user>/<job_id>/prune")]
 async fn post_prune(db: &State<Db>, user: &str, job_id: &str) -> WebResult<Option<Json<PruneResult>>> {
     let Some(job) = db::Job::new(&db, user, job_id).await.map_err(|e| wrap(&*e, "db::Job"))? else { return Ok(None) };
-    let mut stats = db::PruneStats::default();
-    let pruned = job.prune(Some(&mut stats)).await?;
+    let Some((stats, pruned)) = job.prune(true).await? else { unreachable!() };
     Ok(Some(Json(PruneResult { pruned, stats })))
 }
 
