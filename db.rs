@@ -367,6 +367,33 @@ impl Job {
     pub async fn prune_dry_run(&self, settings: Option<RetentionSettings>) -> Result<(PruneStats, Vec<Pruned>), Box<dyn Error>> { self._prune(true,  true, settings).await.map(|r| r.unwrap()) }
     pub async fn prune_with_stats(&self)                                   -> Result<(PruneStats, Vec<Pruned>), Box<dyn Error>> { self._prune(false, true, None).await.map(|r| r.unwrap()) }
     pub async fn prune(&self,         force_stats: bool) -> Result<Option<(PruneStats, Vec<Pruned>)>, Box<dyn Error>> { self._prune(false, force_stats, None).await }
+    // Make sure we never run more than one prune per job at a time. If one is already running, do nothing and return.
+    pub async fn prune_lock(&self,    force_stats: bool) -> Result<Option<(PruneStats, Vec<Pruned>)>, Box<dyn Error>> {
+        use std::{collections::HashMap, sync::{Arc,LazyLock}};
+        use tokio::sync::Mutex;
+
+        // Keep a lazily built HashMap of job_id to Mutex. Use the mutex to make sure we only run one prune per
+        // job at a time. If the mutex for a job is taken then just return instead of waiting to for the current
+        // prune to finish--we'll just try again on the next run.
+        static PRUNER: LazyLock<Mutex<HashMap<i64,Arc<Mutex<()>>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+        let prunelock = {
+            let mut hashguard = (*PRUNER).lock().await;
+            match hashguard.get(&self.job_id) {
+                Some(prunelock) => prunelock.clone(),
+                None => {
+                    let prunelock = Arc::new(Mutex::new(()));
+                    hashguard.insert(self.job_id, prunelock.clone());
+                    prunelock
+                }
+            }
+        };
+        let Ok(_pruneguard) = prunelock.try_lock() else {
+            debug!("Not pruning {}/{}: Prune already in progress", self.user, self.id);
+            return Ok(None);
+        };
+        self.prune(force_stats).await
+    }
 }
 
 struct NotSoFast {
@@ -655,18 +682,16 @@ impl Run {
 
         self.job.db.broker.send_run_update(&self, Some(status)).await;
 
-        // FIXME: Temporarily disabling automatic pruning--there's no locking here and I think it was stacking
-        // up on cron jobs that were very frequent. This caused it to grind to a halt and massive memory and
-        // DB sizes (presumably to a whole lot of overlapping transactions).
-        // I really want this here and not as an offline maintenance task, but it needs some sort of global
-        // locking before re-enabling.
-        //
-        // match self.job.prune(None).await {
-        //     Ok(pruned) if pruned.len() > 0 => { for p in pruned.iter() { info!("{}/{}: pruned {} ({:>5}): {}", self.job.user, self.job.name, p.run_id, human_bytes(p.size), p.reason) }
-        //                                         info!("{}/{}: total pruned: {}", self.job.user, self.job.name, human_bytes(pruned.iter().map(|p| p.size).max().unwrap())); },
-        //     Ok(_)                          => {/* Pruned nothing, so nothing to log */},
-        //     Err(e)                         => warn!("{}/{}: error pruning: {}", self.job.user, self.job.name, e),
-        // }
+        match self.job.prune_lock(false).await {
+            Ok(Some((stats, pruned))) if pruned.len() > 0 => { for p in pruned.iter() { info!("{}/{}: pruned {} ({:>5}): {}", self.job.user, self.job.name, p.run_id, crate::human_bytes(p.size), p.reason) }
+                                                               info!("{}/{}: Total Pruned: {:>8} in {:>5} runs, Total Kept: {:>8} in {:>5} runs",
+                                                                     self.job.user, self.job.name,
+                                                                     crate::human_bytes(stats.pruned.size), stats.pruned.runs,
+                                                                     crate::human_bytes(stats.kept.size), stats.kept.runs); },
+            Ok(Some(_)) |
+            Ok(None)                                      => {/* Pruned nothing, so nothing to log */},
+            Err(e)                                        => warn!("{}/{}: error pruning: {}", self.job.user, self.job.name, e),
+        }
         Ok(())
     }
 
