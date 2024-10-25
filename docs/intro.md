@@ -126,7 +126,7 @@ Big features that are not implemented (in no particular order):
 License
 -------
 
-Copyright © 2022-2023 David Caldwell <david_syncron@porkrind.org>
+Copyright © 2022-2024 David Caldwell <david_syncron@porkrind.org>
 
 *TLDR: [GPLv3](/docs/license.md). You can redistribute the binary (or a
 modified version) as long as you ship the source code used to build it

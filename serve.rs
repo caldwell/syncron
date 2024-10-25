@@ -1,4 +1,4 @@
-// Copyright © 2022 David Caldwell <david@porkrind.org>
+// Copyright © 2022-2024 David Caldwell <david@porkrind.org>
 
 use std::error::Error;
 use std::io::Read;
