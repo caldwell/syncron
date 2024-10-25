@@ -364,7 +364,8 @@ impl Job {
         }
         Ok(Some((stats, pruned)))
     }
-    pub async fn prune_dry_run(&self, force_stats: bool, settings: Option<RetentionSettings>) -> Result<Option<(PruneStats, Vec<Pruned>)>, Box<dyn Error>> { self._prune(true,  force_stats, settings).await }
+    pub async fn prune_dry_run(&self, settings: Option<RetentionSettings>) -> Result<(PruneStats, Vec<Pruned>), Box<dyn Error>> { self._prune(true,  true, settings).await.map(|r| r.unwrap()) }
+    pub async fn prune_with_stats(&self)                                   -> Result<(PruneStats, Vec<Pruned>), Box<dyn Error>> { self._prune(false, true, None).await.map(|r| r.unwrap()) }
     pub async fn prune(&self,         force_stats: bool) -> Result<Option<(PruneStats, Vec<Pruned>)>, Box<dyn Error>> { self._prune(false, force_stats, None).await }
 }
 
