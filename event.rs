@@ -54,7 +54,7 @@ impl Broker {
         let mut subs = self.subs.lock().await;
         for sub in subs.iter() {
             if sub.0 == &event.topic {
-                _ = sub.1.send(event.clone()).is_ok(); // We'll deal with closed ones in a sec
+                _ = sub.1.send(event.clone()); // We'll deal with closed ones in a sec
             }
         }
         subs.retain(|s| !s.1.is_closed());
