@@ -7,6 +7,13 @@ use tokio::sync::{mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
 
 use crate::{db, serve::{JobInfo, Progress, RunInfo}};
 
+// Events have a "topic" that subscribers can subscribe to. If this sounds like
+// MQTT, it's because it was the inspiration. When you subscribe you give a
+// "topic filter" which uses the same semantics as MQTT: `/` is a topic
+// component separator, `+` matches any component and `#` matches any number of
+// components (and can only be at the end). This design makes it very simple to
+// implement but should be powerful enough to cover our needs.
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Event {
     topic: String,
