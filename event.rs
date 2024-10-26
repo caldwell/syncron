@@ -140,7 +140,7 @@ impl Filter {
             if let Some(ref c) = c {
                 if c.len() > 1 && (c.contains('#')) { return Some(Err(format!("Invalid filter {filter:?}: '#' has to be by itself"))) }
                 if c.len() > 1 && (c.contains('+')) { return Some(Err(format!("Invalid filter {filter:?}: '+' has to be by itself"))) }
-                if c.as_str() == "#" && i != f.0.len()-1 { return Some(Err(format!("Invalid filter {filter:?}: '+' has to be by itself"))) }
+                if c.as_str() == "#" && i != f.0.len()-1 { return Some(Err(format!("Invalid filter {filter:?}: '#' can only be at the end"))) }
             }
             None
         }) { e? }
